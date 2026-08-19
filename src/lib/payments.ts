@@ -140,7 +140,7 @@ export async function createPaymentForRegistration(
       quantity: 1,
       // Preço unitário em centavos, o mesmo congelado na inscrição.
       price: item.priceCents,
-      description: item.category.description.slice(0, 200),
+      description: item.category.description?.slice(0, 200),
     })),
     returnUrl: registrationUrl,
     completionUrl: registrationUrl,

@@ -99,6 +99,14 @@ function check(description: string, condition: boolean) {
 // CPF válido reservado para o teste, para não colidir com dados reais.
 const TEST_CPF = "40364182818";
 
+/**
+ * Restaura os preços originais das categorias mexidas pelo teste.
+ *
+ * Fica dentro de um objeto porque a atribuição acontece em `run()`, e o
+ * TypeScript não consegue rastrear isso em uma variável solta.
+ */
+const teardown: { restorePrices?: () => Promise<void> } = {};
+
 async function cleanup() {
   const pilot = await prisma.pilot.findUnique({ where: { cpf: TEST_CPF } });
   if (!pilot) return;
@@ -119,17 +127,43 @@ async function cleanup() {
 async function run() {
   await cleanup();
 
-  const categories = await prisma.category.findMany({
+  const allCategories = await prisma.category.findMany({
     where: { active: true, maxAge: null },
     orderBy: { sortOrder: "asc" },
-    take: 2,
+    take: 3,
   });
 
-  if (categories.length < 2) {
-    throw new Error("Rode `npm run db:seed` antes: o teste precisa de 2 categorias sem limite de idade.");
+  if (allCategories.length < 3) {
+    throw new Error("Rode `npm run db:seed` antes: o teste precisa de 3 categorias ativas.");
   }
 
-  const expectedTotal = categories[0].priceCents + categories[1].priceCents;
+  // As categorias oficiais nascem sem preço. O teste define preços próprios nas
+  // duas primeiras e deixa a terceira sem preço de propósito, para verificar o
+  // bloqueio. Os valores originais são restaurados no fim.
+  const [firstCategory, secondCategory, unpricedCategory] = allCategories;
+  const originalPrices = allCategories.map((category) => ({
+    id: category.id,
+    priceCents: category.priceCents,
+  }));
+
+  await prisma.category.update({ where: { id: firstCategory.id }, data: { priceCents: 15_000 } });
+  await prisma.category.update({ where: { id: secondCategory.id }, data: { priceCents: 12_000 } });
+  await prisma.category.update({ where: { id: unpricedCategory.id }, data: { priceCents: null } });
+
+  const categories = [
+    { ...firstCategory, priceCents: 15_000 },
+    { ...secondCategory, priceCents: 12_000 },
+  ];
+  const expectedTotal = 27_000;
+
+  teardown.restorePrices = async () => {
+    for (const original of originalPrices) {
+      await prisma.category.update({
+        where: { id: original.id },
+        data: { priceCents: original.priceCents },
+      });
+    }
+  };
 
   // ------------------------------------------------------------ inscrição
   console.log("\n1. Inscrição");
@@ -231,8 +265,40 @@ async function run() {
     data: { priceCents: originalPrice },
   });
 
+  // ------------------------------------ categoria sem preço não aceita inscrição
+  console.log("\n7. Categoria com valor a definir");
+  await cleanup();
+
+  let blocked = false;
+  let blockedCode: string | undefined;
+  try {
+    await createRegistration({
+      pilot: {
+        fullName: "Piloto De Teste",
+        cpf: TEST_CPF,
+        birthDate: "1995-05-05",
+        phone: "11912345678",
+        email: "teste@example.com",
+        city: "Campinas",
+        state: "SP",
+      },
+      motorcycle: { number: "99", brand: "Honda", model: "CRF", displacement: "250cc" },
+      // Uma categoria com preço + uma sem preço: a inscrição inteira deve cair.
+      categoryIds: [categories[0].id, unpricedCategory.id],
+    });
+  } catch (error) {
+    blocked = true;
+    blockedCode = (error as { code?: string }).code;
+  }
+
+  check("inscrição recusada", blocked);
+  check("motivo é PRICE_NOT_SET", blockedCode === "PRICE_NOT_SET");
+
+  const leaked = await prisma.pilot.findUnique({ where: { cpf: TEST_CPF } });
+  check("nenhuma inscrição parcial foi gravada", leaked === null);
+
   // ------------------------------------------- gateway com valor diferente
-  console.log("\n7. Gateway devolve valor diferente do solicitado");
+  console.log("\n8. Gateway devolve valor diferente do solicitado");
   await cleanup();
 
   const second = await createRegistration({
@@ -270,6 +336,7 @@ try {
   console.error("\nErro durante o teste:", error);
 } finally {
   await cleanup().catch(() => {});
+  await teardown.restorePrices?.().catch(() => {});
   await prisma.$disconnect();
 }
 

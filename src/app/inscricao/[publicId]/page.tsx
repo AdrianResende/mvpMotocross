@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eventConfig } from "@/config/event";
+import { eventConfig, firstEventDate } from "@/config/event";
 import { findActivePayment, getRegistrationByPublicId } from "@/lib/registrations";
 import { reconcilePayment } from "@/lib/payments";
 import { isPaymentGatewayConfigured } from "@/lib/env";
@@ -65,7 +65,7 @@ export default async function RegistrationDetailPage({
             Inscrição confirmada!
           </h1>
           <p className="mt-3 text-sm text-chalk-dim">
-            Nos vemos na pista em {formatLongDate(eventConfig.date)}.
+            Nos vemos na pista em {formatLongDate(firstEventDate())}.
           </p>
         </div>
       ) : (

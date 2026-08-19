@@ -8,7 +8,7 @@ import {
   type AdminFilters,
 } from "@/lib/admin-data";
 import { formatCents, formatCpf, formatDateTime } from "@/lib/format";
-import { Card, StatusBadge } from "@/components/ui";
+import { Alert, Card, StatusBadge } from "@/components/ui";
 import { RegistrationFilters } from "./filters";
 
 export const metadata: Metadata = {
@@ -50,6 +50,26 @@ export default async function AdminDashboardPage({
     <div className="mx-auto max-w-7xl px-4 py-8">
       <h1 className="display-title text-3xl text-chalk sm:text-4xl">Inscrições</h1>
 
+      {/* Preço faltando bloqueia inscrição — é a primeira coisa que o
+          organizador precisa ver ao abrir o painel. */}
+      {stats.categoriesMissingPrice.length > 0 && (
+        <div className="mt-5">
+          <Alert title={`${stats.categoriesMissingPrice.length} categoria(s) sem preço definido`}>
+            <p>
+              Estas categorias não aceitam inscrição enquanto o valor não for informado:{" "}
+              <strong>
+                {stats.categoriesMissingPrice.map((category) => category.name).join(" · ")}
+              </strong>
+            </p>
+            <p className="mt-2">
+              <Link href="/admin/categorias" className="underline underline-offset-2">
+                Definir valores agora
+              </Link>
+            </p>
+          </Alert>
+        </div>
+      )}
+
       {/* ------------------------------------------------------- INDICADORES */}
       <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Total de inscrições" value={String(stats.total)} />
@@ -76,13 +96,16 @@ export default async function AdminDashboardPage({
         <h2 className="display-label text-sm text-race-500">Inscritos por categoria</h2>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {stats.byCategory.map((category) => (
-            <Card key={category.id} className="p-4">
+            <Card
+              key={category.id}
+              className={`p-4 ${category.priceCents === null ? "border-race-500/60" : ""}`}
+            >
               <p className="display-title text-xl text-chalk">{category.name}</p>
               <p className="display-title mt-1 text-3xl text-race-400">{category.count}</p>
               <p className="mt-1 text-xs text-chalk-dim">
-                {category.maxPilots === null
-                  ? "sem limite"
-                  : `de ${category.maxPilots} vagas`}
+                {category.priceCents === null
+                  ? "valor a definir"
+                  : formatCents(category.priceCents)}
               </p>
             </Card>
           ))}

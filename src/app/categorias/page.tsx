@@ -1,36 +1,49 @@
 import type { Metadata } from "next";
-import { eventConfig } from "@/config/event";
 import { formatAgeRange, formatCents } from "@/lib/format";
 import { listCategoriesWithAvailability, registrationsClosed } from "@/lib/registrations";
 import { ActionLink, Alert, Card, SectionTitle } from "@/components/ui";
+import { WhatsAppButton } from "@/components/whatsapp-button";
 
 export const metadata: Metadata = {
   title: "Categorias",
-  description: "Categorias, valores e vagas disponíveis para inscrição.",
+  description: "Categorias oficiais e valores de inscrição.",
 };
 
-// A contagem de vagas precisa refletir o banco a cada visita.
 export const dynamic = "force-dynamic";
 
 export default async function CategoriesPage() {
   const categories = await listCategoriesWithAvailability();
   const closed = registrationsClosed();
 
+  const withoutPrice = categories.filter((category) => category.priceMissing);
+  const anySelectable = categories.some((category) => category.selectable);
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
-      <SectionTitle eyebrow="Valores e vagas">Categorias</SectionTitle>
+      <SectionTitle eyebrow="Categorias oficiais">Categorias</SectionTitle>
 
       <p className="mt-5 max-w-2xl text-lg text-chalk-dim">
         Marque quantas categorias quiser na hora da inscrição. O total é somado
         automaticamente e cobrado em um pagamento só.
       </p>
 
-      {eventConfig.isDemoData && (
+      {/* Aviso honesto: preço ausente NÃO é preço zero. */}
+      {withoutPrice.length > 0 && (
         <div className="mt-6 max-w-2xl">
-          <Alert tone="info" title="Categorias de demonstração">
-            As categorias e os preços abaixo foram cadastrados apenas para testar o
-            sistema. Substitua pelos dados reais antes de abrir as inscrições — veja{" "}
-            <code>prisma/seed.ts</code>.
+          <Alert tone="info" title="Valores ainda não divulgados">
+            {withoutPrice.length === categories.length ? (
+              <>
+                A organização ainda não divulgou os valores de inscrição. Assim que os
+                preços forem informados, eles aparecem aqui e as inscrições abrem.
+              </>
+            ) : (
+              <>
+                {withoutPrice.length} categoria{withoutPrice.length > 1 ? "s" : ""} ainda
+                está{withoutPrice.length > 1 ? "ão" : ""} com o valor a definir e não
+                aceita{withoutPrice.length > 1 ? "m" : ""} inscrição por enquanto. As
+                demais estão liberadas.
+              </>
+            )}
           </Alert>
         </div>
       )}
@@ -38,8 +51,8 @@ export default async function CategoriesPage() {
       {categories.length === 0 ? (
         <div className="mt-8 max-w-2xl">
           <Alert tone="info" title="Nenhuma categoria cadastrada">
-            Rode <code>npm run db:seed</code> para carregar as categorias de exemplo, ou
-            cadastre as categorias reais direto no banco.
+            Se você é o organizador, rode <code>npm run db:seed</code> para carregar as
+            categorias oficiais.
           </Alert>
         </div>
       ) : (
@@ -48,46 +61,70 @@ export default async function CategoriesPage() {
             const ageRange = formatAgeRange(category.minAge, category.maxAge);
 
             return (
-              <Card key={category.id} className="flex flex-col">
+              <Card
+                key={category.id}
+                className={`flex flex-col ${category.priceMissing ? "border-dashed" : ""}`}
+              >
                 <div className="flex items-start justify-between gap-3 border-b border-dirt-800 p-5">
                   <h2 className="display-title text-3xl text-chalk">{category.name}</h2>
-                  <div className="text-right">
-                    <p className="display-label text-2xl leading-none text-race-400">
-                      {formatCents(category.priceCents)}
-                    </p>
-                    <p className="mt-1 text-xs text-chalk-dim">por piloto</p>
+                  <div className="shrink-0 text-right">
+                    {category.priceCents === null ? (
+                      <>
+                        <p className="display-label text-sm leading-tight text-chalk-dim">
+                          Valor
+                          <br />a definir
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="display-label text-2xl leading-none text-race-400">
+                          {formatCents(category.priceCents)}
+                        </p>
+                        <p className="mt-1 text-xs text-chalk-dim">por piloto</p>
+                      </>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex flex-1 flex-col gap-4 p-5">
-                  <p className="text-sm text-chalk-dim">{category.description}</p>
+                  {category.description && (
+                    <p className="text-sm text-chalk-dim">{category.description}</p>
+                  )}
 
-                  <dl className="space-y-2 text-sm">
-                    {ageRange && (
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-chalk-dim">Idade</dt>
-                        <dd className="text-right font-medium text-chalk">{ageRange}</dd>
-                      </div>
-                    )}
-                    {category.maxPilots !== null && (
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-chalk-dim">Vagas</dt>
-                        <dd
-                          className={`text-right font-medium ${
-                            category.isFull ? "text-red-400" : "text-chalk"
-                          }`}
-                        >
-                          {category.isFull
-                            ? "Esgotadas"
-                            : `${category.remainingSpots} de ${category.maxPilots} livres`}
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
+                  {(ageRange || category.maxPilots !== null) && (
+                    <dl className="space-y-2 text-sm">
+                      {ageRange && (
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-chalk-dim">Idade</dt>
+                          <dd className="text-right font-medium text-chalk">{ageRange}</dd>
+                        </div>
+                      )}
+                      {category.maxPilots !== null && (
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-chalk-dim">Vagas</dt>
+                          <dd
+                            className={`text-right font-medium ${
+                              category.isFull ? "text-red-400" : "text-chalk"
+                            }`}
+                          >
+                            {category.isFull
+                              ? "Esgotadas"
+                              : `${category.remainingSpots} de ${category.maxPilots} livres`}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                  )}
 
                   {category.notes && (
                     <p className="border-l-2 border-race-500/40 pl-3 text-xs text-chalk-dim">
                       {category.notes}
+                    </p>
+                  )}
+
+                  {category.priceMissing && (
+                    <p className="mt-auto text-xs text-dirt-600">
+                      Inscrições abrem quando a organização divulgar o valor.
                     </p>
                   )}
                 </div>
@@ -97,14 +134,21 @@ export default async function CategoriesPage() {
         </div>
       )}
 
-      <div className="mt-12">
+      <div className="mt-12 flex flex-col gap-3 sm:flex-row">
         {closed ? (
           <Alert tone="info" title="Inscrições encerradas">
-            O prazo de inscrição online já passou. Procure a organização para saber se
-            ainda há vagas na secretaria do evento.
+            O prazo de inscrição online já passou. Fale com a organização para saber se
+            ainda há vagas.
           </Alert>
+        ) : anySelectable ? (
+          <ActionLink href="/inscricao" className="w-full sm:w-auto">
+            Fazer inscrição
+          </ActionLink>
         ) : (
-          <ActionLink href="/inscricao">Fazer inscrição</ActionLink>
+          <WhatsAppButton
+            label="Consultar valores"
+            message="Olá! Gostaria de saber os valores das inscrições."
+          />
         )}
       </div>
     </div>

@@ -1,17 +1,32 @@
 /**
- * Seed de CATEGORIAS DE DEMONSTRAÇÃO.
- *
- * >>> ATENÇÃO <<<
- * As categorias, os preços e as faixas etárias abaixo são EXEMPLOS para o
- * sistema poder ser testado. Não são as categorias oficiais de nenhum
- * campeonato. Substitua pelos dados reais antes de abrir as inscrições.
+ * CATEGORIAS OFICIAIS DO EVENTO
+ * =============================
  *
  * Rodar:  npm run db:seed
  *
- * O seed é idempotente (`upsert` por `slug`): rodar de novo atualiza as
- * categorias existentes em vez de duplicá-las.
+ * As 15 categorias abaixo vieram do material oficial da organização.
  *
- * Preços em CENTAVOS. 15000 = R$ 150,00.
+ *
+ * POR QUE NENHUMA TEM PREÇO
+ * -------------------------
+ * Os preços não estavam legíveis no material fornecido. Preencher um valor
+ * "provisório" seria pior do que deixar vazio: um número na tela parece
+ * oficial, e alguém acabaria cobrando errado.
+ *
+ * Então `priceCents` fica `null`, que significa PREÇO NÃO DEFINIDO — e não
+ * gratuito. Enquanto estiver assim:
+ *
+ *   - a categoria aparece no site marcada como "preço a definir";
+ *   - ninguém consegue se inscrever nela (bloqueio no servidor, não só na tela);
+ *   - o painel administrativo exibe um aviso listando o que falta.
+ *
+ * O organizador define os preços em /admin/categorias, sem mexer no código.
+ *
+ * Também não foram preenchidos: faixa etária, limite de vagas e descrições —
+ * a organização não informou nenhum deles.
+ *
+ * O seed é idempotente (`upsert` por `slug`) e NÃO sobrescreve preços já
+ * definidos pelo organizador.
  */
 import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client";
@@ -20,79 +35,65 @@ import { PrismaPg } from "@prisma/adapter-pg";
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-const categories = [
-  {
-    slug: "mx1",
-    name: "MX1",
-    description:
-      "Categoria principal, para pilotos experientes em motos de alta cilindrada.",
-    priceCents: 15_000,
-    minAge: 18,
-    maxAge: null,
-    maxPilots: 40,
-    notes: "Motos de 250cc 2T a 450cc 4T.",
-    sortOrder: 1,
-  },
-  {
-    slug: "mx2",
-    name: "MX2",
-    description:
-      "Para pilotos de bom nível técnico em motos de cilindrada intermediária.",
-    priceCents: 15_000,
-    minAge: 16,
-    maxAge: null,
-    maxPilots: 40,
-    notes: "Motos de 125cc 2T a 250cc 4T.",
-    sortOrder: 2,
-  },
-  {
-    slug: "intermediaria",
-    name: "Intermediária",
-    description:
-      "Degrau entre o amadorismo e a elite, para quem já compete com regularidade.",
-    priceCents: 12_000,
-    minAge: 16,
-    maxAge: null,
-    maxPilots: 40,
-    notes: null,
-    sortOrder: 3,
-  },
-  {
-    slug: "amador",
-    name: "Amador",
-    description:
-      "Para quem pilota por diversão e quer a experiência de uma prova oficial.",
-    priceCents: 10_000,
-    minAge: 16,
-    maxAge: null,
-    maxPilots: 50,
-    notes: "Sem exigência de resultados anteriores.",
-    sortOrder: 4,
-  },
-  {
-    slug: "junior",
-    name: "Júnior",
-    description: "Categoria de base, para os pilotos mais novos da pista.",
-    priceCents: 8_000,
-    minAge: 8,
-    maxAge: 15,
-    maxPilots: 30,
-    notes: "Exige autorização do responsável na retirada da credencial.",
-    sortOrder: 5,
-  },
+/** Categorias oficiais, na ordem informada pela organização. */
+const officialCategories = [
+  { slug: "mx1", name: "MX1" },
+  { slug: "mx2", name: "MX2" },
+  { slug: "mx3", name: "MX3" },
+  { slug: "mx4", name: "MX4" },
+  { slug: "nacional-a", name: "Nacional A" },
+  { slug: "nacional-b", name: "Nacional B" },
+  { slug: "trilheiros", name: "Trilheiros" },
+  { slug: "local", name: "Local" },
+  { slug: "50cc", name: "50cc" },
+  { slug: "65cc", name: "65cc" },
+  { slug: "80cc", name: "80cc" },
+  { slug: "intermediaria-a", name: "Intermediária A" },
+  { slug: "intermediaria-b", name: "Intermediária B" },
+  { slug: "forca-livre-nacional", name: "Força Livre Nacional" },
+  { slug: "forca-livre-importada", name: "Força Livre Importada" },
 ];
 
 async function main() {
-  for (const category of categories) {
+  for (const [index, category] of officialCategories.entries()) {
     await prisma.category.upsert({
       where: { slug: category.slug },
-      create: { ...category, active: true },
-      update: category,
+      create: {
+        slug: category.slug,
+        name: category.name,
+        // Sem preço, sem descrição, sem faixa etária, sem limite de vagas:
+        // a organização não informou nada disso.
+        priceCents: null,
+        description: null,
+        minAge: null,
+        maxAge: null,
+        maxPilots: null,
+        notes: null,
+        active: true,
+        sortOrder: index + 1,
+      },
+      // Em uma re-execução, mexemos apenas em nome e ordem. Preço, descrição e
+      // demais ajustes feitos pelo organizador no painel são preservados.
+      update: {
+        name: category.name,
+        sortOrder: index + 1,
+      },
     });
   }
 
-  const total = await prisma.category.count();
-  console.log(`Seed concluído. ${categories.length} categorias de DEMONSTRAÇÃO gravadas (${total} no total).`);
+  const missingPrice = await prisma.category.count({
+    where: { active: true, priceCents: null },
+  });
+
+  console.log(`Seed concluído. ${officialCategories.length} categorias oficiais gravadas.`);
+
+  if (missingPrice > 0) {
+    console.log(
+      `\nATENÇÃO: ${missingPrice} categoria(s) ainda SEM PREÇO definido.\n` +
+        `Ninguém consegue se inscrever nelas até que o preço seja informado.\n` +
+        `Defina os valores em /admin/categorias.`,
+    );
+  }
 }
 
 main()

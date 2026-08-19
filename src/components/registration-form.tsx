@@ -22,12 +22,17 @@ import { ActionButton, Alert, Card } from "./ui";
 export type CategoryOption = {
   id: string;
   name: string;
-  description: string;
-  priceCents: number;
+  description: string | null;
+  /** `null` = valor ainda não divulgado. Não é gratuito. */
+  priceCents: number | null;
   minAge: number | null;
   maxAge: number | null;
   isFull: boolean;
   remainingSpots: number | null;
+  /** Categoria sem preço definido. */
+  priceMissing: boolean;
+  /** `false` = a categoria não pode ser marcada agora. */
+  selectable: boolean;
 };
 
 const STEPS = ["Piloto", "Moto", "Categorias", "Revisão"] as const;
@@ -68,8 +73,9 @@ export function RegistrationForm({ categories }: { categories: CategoryOption[] 
     [categories, selectedIds],
   );
 
+  // Só categorias com preço entram na conta — e só elas podem ser marcadas.
   const totalCents = useMemo(
-    () => selected.reduce((sum, category) => sum + category.priceCents, 0),
+    () => selected.reduce((sum, category) => sum + (category.priceCents ?? 0), 0),
     [selected],
   );
 
@@ -93,6 +99,12 @@ export function RegistrationForm({ categories }: { categories: CategoryOption[] 
   }
 
   function toggleCategory(id: string) {
+    // Categoria sem preço ou lotada nunca entra na seleção, mesmo que alguém
+    // remova o `disabled` do checkbox pelo inspetor. O servidor recusaria de
+    // qualquer forma; aqui é só para a tela não mentir sobre o total.
+    const category = categories.find((option) => option.id === id);
+    if (!category?.selectable) return;
+
     setSelectedIds((current) =>
       current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
     );
@@ -313,34 +325,44 @@ export function RegistrationForm({ categories }: { categories: CategoryOption[] 
                 return (
                   <label
                     key={category.id}
-                    className={`flex cursor-pointer gap-3 border-2 p-4 transition-colors ${
-                      category.isFull
-                        ? "cursor-not-allowed border-dirt-800 bg-dirt-900 opacity-50"
+                    className={`flex gap-3 border-2 p-4 transition-colors ${
+                      !category.selectable
+                        ? "cursor-not-allowed border-dirt-800 bg-dirt-900 opacity-60"
                         : isSelected
-                          ? "border-race-500 bg-race-500/10"
-                          : "border-dirt-700 bg-dirt-900 hover:border-dirt-600"
+                          ? "cursor-pointer border-race-500 bg-race-500/10"
+                          : "cursor-pointer border-dirt-700 bg-dirt-900 hover:border-dirt-600"
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      disabled={category.isFull}
+                      disabled={!category.selectable}
                       onChange={() => toggleCategory(category.id)}
                       className="mt-1 h-5 w-5 shrink-0 accent-race-500"
                     />
                     <span className="flex-1">
                       <span className="flex flex-wrap items-baseline justify-between gap-x-3">
                         <span className="display-title text-xl text-chalk">{category.name}</span>
-                        <span className="display-label text-lg text-race-400">
-                          {formatCents(category.priceCents)}
+                        <span
+                          className={`display-label ${
+                            category.priceMissing ? "text-sm text-chalk-dim" : "text-lg text-race-400"
+                          }`}
+                        >
+                          {category.priceCents === null
+                            ? "Valor a definir"
+                            : formatCents(category.priceCents)}
                         </span>
                       </span>
-                      <span className="mt-1 block text-sm text-chalk-dim">
-                        {category.description}
-                      </span>
+                      {category.description && (
+                        <span className="mt-1 block text-sm text-chalk-dim">
+                          {category.description}
+                        </span>
+                      )}
                       <span className="mt-1.5 flex flex-wrap gap-x-4 text-xs text-dirt-600">
                         {ageRange && <span>{ageRange}</span>}
-                        {category.isFull ? (
+                        {category.priceMissing ? (
+                          <span>Inscrições abrem quando o valor for divulgado</span>
+                        ) : category.isFull ? (
                           <span className="text-red-400">Vagas esgotadas</span>
                         ) : (
                           category.remainingSpots !== null && (
@@ -402,7 +424,7 @@ export function RegistrationForm({ categories }: { categories: CategoryOption[] 
                   >
                     <dt className="text-sm text-chalk">{category.name}</dt>
                     <dd className="text-sm font-medium text-chalk">
-                      {formatCents(category.priceCents)}
+                      {formatCents(category.priceCents ?? 0)}
                     </dd>
                   </div>
                 ))}

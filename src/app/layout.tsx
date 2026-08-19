@@ -4,7 +4,6 @@ import "./globals.css";
 import { eventConfig } from "@/config/event";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { DemoBanner } from "@/components/demo-banner";
 
 const barlow = Barlow({
   variable: "--font-barlow",
@@ -26,7 +25,9 @@ export const metadata: Metadata = {
     default: `${eventConfig.name} — Inscrições`,
     template: `%s · ${eventConfig.name}`,
   },
-  description: eventConfig.description,
+  description:
+    eventConfig.description ??
+    `${eventConfig.subtitle} ${eventConfig.location.name}, ${eventConfig.location.city}. Inscrições online.`,
 };
 
 export const viewport: Viewport = {
@@ -40,7 +41,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${barlow.variable} ${barlowCondensed.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-dirt-950">
-        <DemoBanner />
         <SiteHeader />
         <main className="flex-1">{children}</main>
         <SiteFooter />

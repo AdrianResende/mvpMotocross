@@ -1,21 +1,25 @@
 import Link from "next/link";
 import { eventConfig } from "@/config/event";
-import { formatLongDate } from "@/lib/format";
+import { formatShortDate } from "@/lib/format";
+import { WhatsAppButton } from "./whatsapp-button";
 
 export function SiteFooter() {
-  const { contact, venue } = eventConfig;
-  const hasContact = contact.phone || contact.whatsapp || contact.email || contact.instagram;
+  const { contact, location } = eventConfig;
+  const dates = eventConfig.schedule.map((day) => formatShortDate(day.date)).join(" e ");
 
   return (
     <footer className="mt-16 border-t border-dirt-800 bg-dirt-900">
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <p className="display-title text-2xl text-chalk">{eventConfig.name}</p>
-          <p className="mt-2 text-sm text-chalk-dim">{eventConfig.edition}</p>
+          <p className="mt-2 text-sm text-chalk-dim">{eventConfig.subtitle}</p>
           <p className="mt-4 text-sm text-chalk-dim">
-            {formatLongDate(eventConfig.date)}
+            {dates}
             <br />
-            {venue.name}
+            {location.name} — {location.city}
+          </p>
+          <p className="mt-3 text-sm text-chalk-dim">
+            Entrada: {eventConfig.entranceInformation}
           </p>
         </div>
 
@@ -45,43 +49,20 @@ export function SiteFooter() {
           </ul>
         </div>
 
-        {hasContact ? (
-          <div>
-            <p className="display-label text-sm text-race-400">Contato da organização</p>
-            <ul className="mt-3 space-y-2 text-sm text-chalk-dim">
-              {contact.phone && <li>{contact.phone}</li>}
-              {contact.whatsapp && (
-                <li>
-                  <a
-                    href={`https://wa.me/${contact.whatsapp}`}
-                    className="hover:text-chalk"
-                    rel="noopener noreferrer"
-                    target="_blank"
-                  >
-                    WhatsApp
-                  </a>
-                </li>
-              )}
-              {contact.email && (
-                <li>
-                  <a href={`mailto:${contact.email}`} className="hover:text-chalk">
-                    {contact.email}
-                  </a>
-                </li>
-              )}
-              {contact.instagram && <li>{contact.instagram}</li>}
-            </ul>
-          </div>
-        ) : (
-          <div>
-            <p className="display-label text-sm text-race-400">Contato da organização</p>
-            <p className="mt-3 text-sm text-chalk-dim">
-              Contatos ainda não cadastrados. Preencha o bloco{" "}
-              <code className="text-race-400">contact</code> em{" "}
-              <code className="text-race-400">src/config/event.ts</code>.
+        <div>
+          <p className="display-label text-sm text-race-400">Contato da organização</p>
+          {contact.phone && <p className="mt-3 text-sm text-chalk-dim">{contact.phone}</p>}
+          {contact.email && (
+            <p className="mt-2 text-sm text-chalk-dim">
+              <a href={`mailto:${contact.email}`} className="hover:text-chalk">
+                {contact.email}
+              </a>
             </p>
+          )}
+          <div className="mt-4">
+            <WhatsAppButton label="Falar no WhatsApp" variant="secondary" />
           </div>
-        )}
+        </div>
       </div>
 
       <div className="border-t border-dirt-800 px-4 py-4">
