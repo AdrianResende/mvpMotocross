@@ -1,0 +1,281 @@
+/**
+ * TESTE DE FLUXO PONTA A PONTA (sem tocar na AbacatePay de verdade)
+ * =================================================================
+ *
+ * Rodar:  npm run test:fluxo
+ *
+ * Este script exercita a regra mais importante do sistema:
+ *
+ *     UMA INSCRIÇÃO SÓ VIRA PAGA QUANDO A PRÓPRIA ABACATEPAY,
+ *     CONSULTADA PELO SERVIDOR, DIZ QUE A COBRANÇA ESTÁ PAGA.
+ *
+ * Para conseguir testar isso sem mover dinheiro nem depender de rede, o script
+ * substitui o `fetch` global por um dublê que responde como a API da
+ * AbacatePay responderia, usando exatamente o formato documentado nos pacotes
+ * oficiais `@abacatepay/types`. Nenhum código de produção é alterado ou
+ * instrumentado para o teste — o dublê entra por baixo, no `fetch`.
+ *
+ * Os dados criados aqui são removidos no final.
+ */
+import "dotenv/config";
+
+// Chave de mentira: existe só para o cliente HTTP passar da checagem de
+// configuração. Nenhuma requisição real sai daqui — o `fetch` é substituído
+// logo abaixo.
+process.env.ABACATEPAY_API_KEY = "chave-de-teste-nunca-usada-de-verdade";
+
+// ---------------------------------------------------------------- dublê
+
+/** Estado que o "gateway" vai reportar na próxima consulta. */
+const gateway = {
+  status: "PENDING" as "PENDING" | "PAID",
+  /** Valor que o gateway devolve ao criar a cobrança, em centavos. */
+  amountOverride: null as number | null,
+};
+
+const realFetch = globalThis.fetch;
+
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : input.toString();
+
+  // Qualquer coisa que não seja a AbacatePay segue o caminho normal.
+  if (!url.startsWith("https://api.abacatepay.com/")) {
+    return realFetch(input, init);
+  }
+
+  const json = (data: unknown) =>
+    new Response(JSON.stringify({ data, error: null }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  if (url.includes("/pixQrCode/create")) {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { amount: number };
+    return json({
+      id: "pix_char_TESTE",
+      amount: gateway.amountOverride ?? body.amount,
+      status: "PENDING",
+      devMode: true,
+      method: "PIX",
+      brCode: "00020101021226950014br.gov.bcb.pix-EXEMPLO-DE-TESTE",
+      brCodeBase64: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+      platformFee: 80,
+      description: "teste",
+      metadata: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+  }
+
+  if (url.includes("/pixQrCode/check")) {
+    return json({
+      status: gateway.status,
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+  }
+
+  throw new Error(`O teste não previu esta chamada ao gateway: ${url}`);
+}) as typeof fetch;
+
+// Os módulos só são importados DEPOIS do dublê estar no lugar.
+const { prisma } = await import("../src/lib/db");
+const { createRegistration, getRegistrationByPublicId } = await import("../src/lib/registrations");
+const { createPaymentForRegistration, reconcilePayment } = await import("../src/lib/payments");
+
+// ------------------------------------------------------------- asserções
+
+let failures = 0;
+
+function check(description: string, condition: boolean) {
+  if (condition) {
+    console.log(`  ok   ${description}`);
+  } else {
+    failures += 1;
+    console.error(`  FALHA ${description}`);
+  }
+}
+
+// CPF válido reservado para o teste, para não colidir com dados reais.
+const TEST_CPF = "40364182818";
+
+async function cleanup() {
+  const pilot = await prisma.pilot.findUnique({ where: { cpf: TEST_CPF } });
+  if (!pilot) return;
+
+  const registrations = await prisma.registration.findMany({
+    where: { pilotId: pilot.id },
+    select: { number: true },
+  });
+  const numbers = registrations.map((registration) => registration.number);
+
+  await prisma.payment.deleteMany({ where: { registrationNumber: { in: numbers } } });
+  await prisma.registrationCategory.deleteMany({ where: { registrationNumber: { in: numbers } } });
+  await prisma.registration.deleteMany({ where: { number: { in: numbers } } });
+  await prisma.motorcycle.deleteMany({ where: { pilotId: pilot.id } });
+  await prisma.pilot.delete({ where: { id: pilot.id } });
+}
+
+async function run() {
+  await cleanup();
+
+  const categories = await prisma.category.findMany({
+    where: { active: true, maxAge: null },
+    orderBy: { sortOrder: "asc" },
+    take: 2,
+  });
+
+  if (categories.length < 2) {
+    throw new Error("Rode `npm run db:seed` antes: o teste precisa de 2 categorias sem limite de idade.");
+  }
+
+  const expectedTotal = categories[0].priceCents + categories[1].priceCents;
+
+  // ------------------------------------------------------------ inscrição
+  console.log("\n1. Inscrição");
+  const created = await createRegistration({
+    pilot: {
+      fullName: "Piloto De Teste",
+      cpf: TEST_CPF,
+      birthDate: "1995-05-05",
+      phone: "11912345678",
+      email: "teste@example.com",
+      city: "Campinas",
+      state: "SP",
+    },
+    motorcycle: { number: "99", brand: "Honda", model: "CRF", displacement: "250cc" },
+    categoryIds: [categories[0].id, categories[1].id],
+  });
+
+  check(
+    `total somado pelo servidor = ${expectedTotal} centavos`,
+    created.totalCents === expectedTotal,
+  );
+
+  let registration = (await getRegistrationByPublicId(created.publicId))!;
+  check("inscrição nasce PENDENTE", registration.status === "PENDING");
+
+  // -------------------------------------------------------------- cobrança
+  console.log("\n2. Geração da cobrança PIX");
+  const payment = await createPaymentForRegistration(registration, "PIX");
+  check("cobrança criada", payment.ok);
+  if (!payment.ok) throw new Error(payment.error);
+
+  const paymentRow = await prisma.payment.findUniqueOrThrow({ where: { id: payment.paymentId } });
+  check(
+    `valor da cobrança = total da inscrição (${expectedTotal})`,
+    paymentRow.amountCents === expectedTotal,
+  );
+  check("cobrança nasce PENDENTE", paymentRow.status === "PENDING");
+  check("QR Code e copia-e-cola gravados", Boolean(paymentRow.brCode && paymentRow.brCodeBase64));
+
+  registration = (await getRegistrationByPublicId(created.publicId))!;
+  check("inscrição continua PENDENTE após gerar cobrança", registration.status === "PENDING");
+
+  // ------------------------------------------------- webhook forjado
+  console.log("\n3. Webhook forjado (gateway ainda diz PENDENTE)");
+  gateway.status = "PENDING";
+  const forged = await reconcilePayment(payment.paymentId);
+
+  check("conferência devolve PENDENTE", forged.status === "PENDING");
+  check("nada foi confirmado", forged.justPaid === false);
+
+  registration = (await getRegistrationByPublicId(created.publicId))!;
+  check(
+    "INSCRIÇÃO NÃO VIROU PAGA com evento forjado",
+    registration.status === "PENDING",
+  );
+
+  // ---------------------------------------------- pagamento verdadeiro
+  console.log("\n4. Pagamento confirmado pelo gateway");
+  gateway.status = "PAID";
+  const confirmed = await reconcilePayment(payment.paymentId);
+
+  check("conferência devolve PAGO", confirmed.status === "PAID");
+  check("esta conferência foi a que confirmou", confirmed.justPaid === true);
+
+  registration = (await getRegistrationByPublicId(created.publicId))!;
+  check("inscrição virou PAGA", registration.status === "PAID");
+  check("data do pagamento gravada", registration.paidAt !== null);
+  check(
+    "valor pago = total original",
+    registration.totalCents === expectedTotal,
+  );
+
+  // ------------------------------------------------------- idempotência
+  console.log("\n5. Reentrega do webhook (idempotência)");
+  const again = await reconcilePayment(payment.paymentId);
+  check("continua PAGO", again.status === "PAID");
+  check("não confirma duas vezes", again.justPaid === false);
+
+  const paymentsCount = await prisma.payment.count({
+    where: { registrationNumber: registration.number },
+  });
+  check("nenhum pagamento duplicado foi criado", paymentsCount === 1);
+
+  // -------------------------------------------- preço alterado depois
+  console.log("\n6. Preço da categoria alterado após a inscrição");
+  const originalPrice = categories[0].priceCents;
+  await prisma.category.update({
+    where: { id: categories[0].id },
+    data: { priceCents: originalPrice + 5000 },
+  });
+
+  registration = (await getRegistrationByPublicId(created.publicId))!;
+  const frozen = registration.categories.find((item) => item.categoryId === categories[0].id);
+  check("preço histórico da inscrição não mudou", frozen?.priceCents === originalPrice);
+  check("total da inscrição não mudou", registration.totalCents === expectedTotal);
+
+  await prisma.category.update({
+    where: { id: categories[0].id },
+    data: { priceCents: originalPrice },
+  });
+
+  // ------------------------------------------- gateway com valor diferente
+  console.log("\n7. Gateway devolve valor diferente do solicitado");
+  await cleanup();
+
+  const second = await createRegistration({
+    pilot: {
+      fullName: "Piloto De Teste",
+      cpf: TEST_CPF,
+      birthDate: "1995-05-05",
+      phone: "11912345678",
+      email: "teste@example.com",
+      city: "Campinas",
+      state: "SP",
+    },
+    motorcycle: { number: "99", brand: "Honda", model: "CRF", displacement: "250cc" },
+    categoryIds: [categories[0].id],
+  });
+
+  const secondRegistration = (await getRegistrationByPublicId(second.publicId))!;
+  gateway.amountOverride = 100; // o gateway "responde" R$ 1,00 em vez do total
+  const rejected = await createPaymentForRegistration(secondRegistration, "PIX");
+  gateway.amountOverride = null;
+
+  check("cobrança recusada", rejected.ok === false);
+  const orphanPayments = await prisma.payment.count({
+    where: { registrationNumber: secondRegistration.number },
+  });
+  check("nenhuma cobrança gravada com valor divergente", orphanPayments === 0);
+
+  await cleanup();
+}
+
+try {
+  await run();
+} catch (error) {
+  failures += 1;
+  console.error("\nErro durante o teste:", error);
+} finally {
+  await cleanup().catch(() => {});
+  await prisma.$disconnect();
+}
+
+if (failures > 0) {
+  console.error(`\n${failures} verificação(ões) falharam.`);
+  process.exit(1);
+}
+
+console.log("\nTodas as verificações passaram.");

@@ -1,0 +1,215 @@
+// Schema do MVP de inscrições do campeonato de motocross.
+//
+// Regras de dinheiro: TODO valor monetário é armazenado em CENTAVOS (Int).
+// A AbacatePay trabalha exclusivamente em centavos, então usar a mesma unidade
+// ponta a ponta elimina erros de arredondamento.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Status da inscrição.
+enum RegistrationStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+/// Status do pagamento.
+///
+/// Espelha os status reais da AbacatePay (PENDING | EXPIRED | CANCELLED | PAID
+/// | REFUNDED, conforme `PaymentStatus` em @abacatepay/types) e acrescenta
+/// FAILED apenas para falhas locais na criação da cobrança — nenhum status
+/// aqui é inventado do lado do gateway.
+enum PaymentStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELLED
+  REFUNDED
+  FAILED
+}
+
+/// Forma de cobrança usada na AbacatePay.
+///
+/// PIX_QRCODE -> POST /v1/pixQrCode/create (QR Code exibido no próprio site)
+/// BILLING    -> POST /v1/billing/create   (checkout hospedado, PIX + cartão)
+enum PaymentKind {
+  PIX_QRCODE
+  BILLING
+}
+
+model Pilot {
+  id            String         @id @default(cuid())
+  fullName      String
+  cpf           String         @unique
+  birthDate     DateTime       @db.Date
+  phone         String
+  email         String
+  city          String
+  state         String         @db.Char(2)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  motorcycles   Motorcycle[]
+  registrations Registration[]
+
+  @@index([email])
+}
+
+model Motorcycle {
+  id           String  @id @default(cuid())
+  pilotId      String
+  pilot        Pilot   @relation(fields: [pilotId], references: [id], onDelete: Cascade)
+  number       String
+  brand        String
+  model        String
+  displacement String
+
+  registrations Registration[]
+
+  @@index([pilotId])
+}
+
+model Category {
+  id          String  @id @default(cuid())
+  /// Identificador estável usado pelo seed e pelas URLs. Ex.: "mx1".
+  slug        String  @unique
+  name        String
+  description String
+  /// Preço vigente da inscrição, em centavos.
+  priceCents  Int
+  minAge      Int?
+  maxAge      Int?
+  /// Vagas totais. `null` = sem limite.
+  maxPilots   Int?
+  notes       String?
+  active      Boolean @default(true)
+  /// Ordem de exibição nas listagens.
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  registrationCategories RegistrationCategory[]
+}
+
+model Registration {
+  /// Número sequencial legível, exibido ao piloto ("Inscrição #1024").
+  number Int @id @default(autoincrement())
+
+  /// Identificador aleatório usado nas URLs públicas. Impede que alguém
+  /// enumere inscrições alheias trocando o número na barra de endereço.
+  publicId String @unique @default(cuid())
+
+  pilotId      String
+  pilot        Pilot       @relation(fields: [pilotId], references: [id])
+  motorcycleId String?
+  motorcycle   Motorcycle? @relation(fields: [motorcycleId], references: [id])
+
+  status RegistrationStatus @default(PENDING)
+
+  /// Total em centavos, sempre recalculado no servidor a partir dos preços
+  /// gravados no banco. O frontend nunca envia preço.
+  totalCents Int
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  paidAt    DateTime?
+
+  categories RegistrationCategory[]
+  payments   Payment[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// Vínculo inscrição <-> categoria, congelando o preço aplicado.
+model RegistrationCategory {
+  id                 String       @id @default(cuid())
+  registrationNumber Int
+  registration       Registration @relation(fields: [registrationNumber], references: [number], onDelete: Cascade)
+  categoryId         String
+  category           Category     @relation(fields: [categoryId], references: [id])
+
+  /// Preço da categoria no momento da inscrição, em centavos. Nunca é
+  /// atualizado se a Category mudar de preço depois — preserva o histórico.
+  priceCents Int
+
+  createdAt DateTime @default(now())
+
+  /// Impede a mesma categoria duas vezes na mesma inscrição.
+  @@unique([registrationNumber, categoryId])
+  @@index([categoryId])
+}
+
+model Payment {
+  id                 String       @id @default(cuid())
+  registrationNumber Int
+  registration       Registration @relation(fields: [registrationNumber], references: [number], onDelete: Cascade)
+
+  /// Sempre "abacatepay" neste MVP; o campo existe para permitir trocar ou
+  /// somar gateways sem migração de dados.
+  gateway String @default("abacatepay")
+
+  kind PaymentKind
+
+  /// ID da cobrança no gateway (`id` retornado por pixQrCode/create ou
+  /// billing/create). Único para tornar o webhook idempotente.
+  gatewayPaymentId String @unique
+
+  /// Valor cobrado, em centavos, congelado na criação da cobrança.
+  amountCents Int
+
+  status PaymentStatus @default(PENDING)
+
+  /// Método efetivamente usado, conforme informado pelo gateway ("PIX" ou
+  /// "CARD"). Fica nulo até o pagamento ser confirmado.
+  paymentMethod String?
+
+  /// URL do checkout hospedado (apenas para kind = BILLING).
+  checkoutUrl String?
+
+  /// PIX copia-e-cola e QR Code (apenas para kind = PIX_QRCODE).
+  brCode       String?
+  brCodeBase64 String?
+
+  expiresAt DateTime?
+  paidAt    DateTime?
+
+  /// Ambiente da cobrança no gateway (`devMode`). Cobranças de teste nunca
+  /// devem ser confundidas com receita real.
+  devMode Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([registrationNumber])
+  @@index([status])
+}
+
+/// Log de webhooks recebidos. Garante idempotência: o mesmo evento entregue
+/// duas vezes é reconhecido e ignorado no segundo processamento.
+model WebhookEvent {
+  id String @id @default(cuid())
+
+  /// `id` do evento enviado pelo gateway. Único -> reentrega vira no-op.
+  externalId String @unique
+
+  event     String
+  gateway   String  @default("abacatepay")
+  /// Resultado do processamento, para depuração. Não guarda dados sensíveis.
+  outcome   String
+  devMode   Boolean @default(false)
+
+  receivedAt DateTime @default(now())
+
+  @@index([event])
+  @@index([receivedAt])
+}
