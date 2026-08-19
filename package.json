@@ -12,7 +12,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "typecheck": "tsc --noEmit",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:fluxo": "tsx --conditions=react-server scripts/test-fluxo.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
