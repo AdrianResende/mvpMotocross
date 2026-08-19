@@ -15,6 +15,14 @@ export function formatCents(cents: number): string {
   return brl.format(cents / 100);
 }
 
+/**
+ * Preço para exibição, ciente de que `null` significa NÃO DEFINIDO — e não
+ * gratuito. Nunca devolve "R$ 0,00" para um preço ausente.
+ */
+export function formatPrice(cents: number | null): string {
+  return cents === null ? "A definir" : formatCents(cents);
+}
+
 const longDate = new Intl.DateTimeFormat("pt-BR", {
   weekday: "long",
   day: "2-digit",
@@ -27,6 +35,11 @@ const shortDate = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
+  timeZone: "America/Sao_Paulo",
+});
+
+const weekday = new Intl.DateTimeFormat("pt-BR", {
+  weekday: "long",
   timeZone: "America/Sao_Paulo",
 });
 
@@ -46,6 +59,12 @@ export function formatLongDate(isoDate: string | Date): string {
 
 export function formatShortDate(isoDate: string | Date): string {
   return shortDate.format(toDate(isoDate));
+}
+
+/** "2026-08-22" -> "Sábado" */
+export function formatWeekday(isoDate: string | Date): string {
+  const name = weekday.format(toDate(isoDate));
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 export function formatDateTime(value: string | Date): string {

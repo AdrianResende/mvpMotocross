@@ -39,6 +39,12 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
             <Link href="/admin" className="display-label text-sm text-chalk-dim hover:text-chalk">
               Inscrições
             </Link>
+            <Link
+              href="/admin/categorias"
+              className="display-label text-sm text-chalk-dim hover:text-chalk"
+            >
+              Categorias
+            </Link>
             <Link href="/" className="display-label text-sm text-chalk-dim hover:text-chalk">
               Ver site
             </Link>

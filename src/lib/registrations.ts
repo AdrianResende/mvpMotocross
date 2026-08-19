@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "./db";
 import type { CreateRegistrationInput } from "./validation";
 import { ageOn } from "./validation";
-import { eventConfig } from "@/config/event";
+import { eventConfig, firstEventDate } from "@/config/event";
 
 /**
  * Regras de negócio da inscrição.
@@ -21,15 +21,23 @@ export class RegistrationError extends Error {
       | "CATEGORY_FULL"
       | "AGE_NOT_ALLOWED"
       | "REGISTRATIONS_CLOSED"
-      | "DUPLICATE_REGISTRATION",
+      | "DUPLICATE_REGISTRATION"
+      | "PRICE_NOT_SET",
   ) {
     super(message);
     this.name = "RegistrationError";
   }
 }
 
-/** As inscrições online já se encerraram? */
+/**
+ * As inscrições online já se encerraram?
+ *
+ * Com `registrationsCloseAt` em `null` — situação atual, porque a organização
+ * não informou um prazo — as inscrições seguem abertas.
+ */
 export function registrationsClosed(now: Date = new Date()): boolean {
+  if (!eventConfig.registrationsCloseAt) return false;
+
   const deadline = new Date(eventConfig.registrationsCloseAt);
   if (Number.isNaN(deadline.getTime())) return false;
   return now > deadline;
@@ -39,8 +47,9 @@ export type CategoryWithAvailability = {
   id: string;
   slug: string;
   name: string;
-  description: string;
-  priceCents: number;
+  description: string | null;
+  /** `null` = preço ainda não definido pela organização. Não é gratuito. */
+  priceCents: number | null;
   minAge: number | null;
   maxAge: number | null;
   maxPilots: number | null;
@@ -50,6 +59,10 @@ export type CategoryWithAvailability = {
   /** `null` quando a categoria não tem limite de vagas. */
   remainingSpots: number | null;
   isFull: boolean;
+  /** Categoria sem preço definido: aparece no site, mas não aceita inscrição. */
+  priceMissing: boolean;
+  /** `true` quando a categoria pode receber inscrições agora. */
+  selectable: boolean;
 };
 
 /**
@@ -77,6 +90,9 @@ export async function listCategoriesWithAvailability(): Promise<CategoryWithAvai
     const takenSpots = countByCategory.get(category.id) ?? 0;
     const remainingSpots =
       category.maxPilots === null ? null : Math.max(0, category.maxPilots - takenSpots);
+    const isFull = remainingSpots !== null && remainingSpots <= 0;
+    const priceMissing = category.priceCents === null;
+
     return {
       id: category.id,
       slug: category.slug,
@@ -89,7 +105,9 @@ export async function listCategoriesWithAvailability(): Promise<CategoryWithAvai
       notes: category.notes,
       takenSpots,
       remainingSpots,
-      isFull: remainingSpots !== null && remainingSpots <= 0,
+      isFull,
+      priceMissing,
+      selectable: !isFull && !priceMissing,
     };
   });
 }
@@ -112,7 +130,7 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
   }
 
   const birthDate = new Date(`${input.pilot.birthDate}T12:00:00-03:00`);
-  const eventDate = new Date(`${eventConfig.date}T12:00:00-03:00`);
+  const eventDate = new Date(`${firstEventDate()}T12:00:00-03:00`);
   const ageAtEvent = ageOn(birthDate, eventDate);
 
   return prisma.$transaction(async (tx) => {
@@ -129,6 +147,17 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
     }
 
     for (const category of categories) {
+      // Categoria sem preço não pode ser cobrada, então não pode ser inscrita.
+      // Esta é a checagem que vale: a tela também esconde a opção, mas quem
+      // montar a requisição na mão esbarra aqui.
+      if (category.priceCents === null) {
+        throw new RegistrationError(
+          `A categoria ${category.name} ainda está com o valor da inscrição a definir. ` +
+            `Fale com a organização.`,
+          "PRICE_NOT_SET",
+        );
+      }
+
       if (category.minAge !== null && ageAtEvent < category.minAge) {
         throw new RegistrationError(
           `A categoria ${category.name} exige idade mínima de ${category.minAge} anos na data do evento.`,
@@ -159,7 +188,8 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
     }
 
     // >>> O TOTAL É CALCULADO AQUI, a partir dos preços do banco. <<<
-    const totalCents = categories.reduce((sum, category) => sum + category.priceCents, 0);
+    // O laço acima já garantiu que nenhum preço é nulo.
+    const totalCents = categories.reduce((sum, category) => sum + (category.priceCents ?? 0), 0);
 
     // O piloto é identificado pelo CPF: se já existe, seus dados são
     // atualizados em vez de criar um cadastro duplicado.
@@ -219,7 +249,7 @@ export async function createRegistration(input: CreateRegistrationInput): Promis
             categoryId: category.id,
             // Preço congelado: mudanças futuras no catálogo não afetam
             // inscrições já feitas.
-            priceCents: category.priceCents,
+            priceCents: category.priceCents ?? 0,
           })),
         },
       },

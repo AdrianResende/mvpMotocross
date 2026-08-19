@@ -1,7 +1,8 @@
-# Campeonato de Motocross — site de inscrições
+# Primeiro Motocross CT 147 — site de inscrições
 
-MVP de inscrição online para um campeonato de motocross: o piloto se inscreve
-pelo celular, escolhe uma ou mais categorias, paga por PIX e recebe a
+Site de inscrição online do **Primeiro Motocross CT 147**, em Coronel Xavier
+Chaves — Povoado da Invernada, nos dias **22 e 23 de agosto**. O piloto se
+inscreve pelo celular, escolhe uma ou mais categorias, paga por PIX e recebe a
 confirmação; o organizador acompanha tudo por um painel protegido.
 
 **Stack:** Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · PostgreSQL ·
@@ -11,17 +12,41 @@ Prisma 7 · AbacatePay.
 
 ## ⚠️ Leia primeiro: o que ainda falta configurar
 
-O código está pronto e testado, mas **três coisas dependem de você** e o site
-não pode inventá-las. Enquanto não forem feitas, o site funciona e continua
-honesto — ele avisa o que falta em vez de fingir que está tudo certo.
+O código está pronto e testado, mas **três coisas dependem de informação que
+ainda não existe**. Enquanto não forem preenchidas, o site funciona e continua
+honesto — avisa o que falta em vez de fingir que está tudo certo.
 
 | O que | Onde | Sem isso… |
 |---|---|---|
-| **1. Chave da AbacatePay** | `ABACATEPAY_API_KEY` | Inscrições são criadas normalmente, mas a tela de pagamento exibe "Pagamentos ainda não configurados". Nenhuma cobrança é gerada. |
-| **2. Webhook cadastrado no painel da AbacatePay** | painel + `ABACATEPAY_WEBHOOK_SECRET` | Pagamentos ainda são confirmados, porque o site também consulta o gateway ao abrir a página da inscrição e pelo botão do painel. Mas a confirmação deixa de ser instantânea. |
-| **3. Dados reais do evento** | `src/config/event.ts` e `prisma/seed.ts` | O site exibe uma faixa de aviso em todas as páginas informando que os dados são de demonstração. |
+| **1. Preços das categorias** | painel, em `/admin/categorias` | **As inscrições não abrem.** As 15 categorias existem, mas aparecem como "valor a definir" e o servidor recusa inscrição nelas. Os preços não estavam legíveis no material, e um valor chutado seria pior que nenhum. |
+| **2. Chave da AbacatePay** | `ABACATEPAY_API_KEY` | Inscrições são criadas normalmente, mas a tela de pagamento exibe "Pagamentos ainda não configurados". Nenhuma cobrança é gerada. |
+| **3. Webhook cadastrado no painel da AbacatePay** | painel + `ABACATEPAY_WEBHOOK_SECRET` | Pagamentos ainda são confirmados, porque o site também consulta o gateway ao abrir a página da inscrição e pelo botão do painel. Mas a confirmação deixa de ser instantânea. |
 
 Detalhes de cada um mais abaixo.
+
+---
+
+## Informação oficial × informação não configurada
+
+O site distingue as duas coisas em todo lugar, e essa distinção é a regra
+central do projeto.
+
+**Está no site porque veio do material oficial:** nome, subtítulo "Pista de cara
+nova!", local, as datas 22 e 23/08 com os horários informados (10:00/14:00 no
+sábado, 09:00/12:00 no domingo), entrada de 1 kg de alimento, as 15 categorias,
+a Categoria Leiteiro com o prêmio kit churrasco + cerveja, a hospedagem no local
+e o telefone (32) 99999-6803.
+
+**Não está no site porque a organização não informou:** preços, endereço
+completo, coordenadas, regulamento, idade mínima ou máxima, documentos exigidos,
+limite de pilotos, premiações além da Leiteiro, horários de treino,
+classificatória, abertura ou premiação, e condições da hospedagem.
+
+Esses campos não foram preenchidos com valores plausíveis. Eles ficam vazios, e
+o site se adapta: seções sem conteúdo não aparecem, e o que bloqueia uma ação
+(o preço) é anunciado com todas as letras. Quando a organização informar
+qualquer um deles, basta preencher o campo correspondente — a estrutura já
+existe.
 
 ---
 
@@ -33,7 +58,7 @@ Pré-requisitos: Node.js 20+ e um PostgreSQL acessível.
 npm install
 cp .env.example .env      # preencha DATABASE_URL (o resto pode ficar vazio por ora)
 npm run db:migrate        # cria as tabelas
-npm run db:seed           # carrega as categorias de DEMONSTRAÇÃO
+npm run db:seed           # carrega as 15 categorias oficiais (sem preço)
 npm run dev
 ```
 
@@ -47,7 +72,7 @@ O site sobe em <http://localhost:3000>.
 | `npm run build` / `npm start` | Build e execução em produção |
 | `npm run db:migrate` | Cria/aplica migrations (desenvolvimento) |
 | `npm run db:deploy` | Aplica migrations existentes (produção) |
-| `npm run db:seed` | Carrega as categorias de exemplo |
+| `npm run db:seed` | Carrega as 15 categorias oficiais |
 | `npm run db:studio` | Abre o Prisma Studio para editar dados na mão |
 | `npm run typecheck` | Verificação de tipos |
 | `npm run test:fluxo` | Testa o fluxo de pagamento ponta a ponta (ver abaixo) |
@@ -56,38 +81,64 @@ O site sobe em <http://localhost:3000>.
 
 ## Configuração do evento
 
-Tudo que o organizador precisa mudar está em **dois lugares**:
-
 ### `src/config/event.ts` — informações do evento
 
-Nome, data, local, horário de abertura, **programação**, regras, FAQ e contatos.
-Nenhuma dessas informações está espalhada pelas páginas.
+Nome, subtítulo, local, datas e horários, entrada, hospedagem, contato e ações
+especiais. Nenhuma dessas informações está repetida nas páginas.
 
-No topo do arquivo existe uma chave:
+Campos que a organização ainda não informou estão como `null`, e a estrutura já
+está pronta para recebê-los:
 
 ```ts
-isDemoData: true,
+location: {
+  name: "Povoado da Invernada",
+  city: "Coronel Xavier Chaves",
+  state: null,       // não informado
+  address: null,     // endereço completo, quando houver
+  latitude: null,
+  longitude: null,
+  mapsUrl: null,     // preenchendo, o botão "Ver rota" aparece sozinho
+},
 ```
 
-Enquanto ela for `true`, uma faixa de aviso aparece em todas as páginas dizendo
-que os dados são de demonstração. **Troque para `false` só depois de substituir
-tudo pelas informações reais.**
+Mesma lógica para `registrationsCloseAt` (sem prazo definido, as inscrições
+seguem abertas), `rules` (vazio, a seção de regras não aparece) e
+`description`.
 
-### `prisma/seed.ts` — categorias e preços
+**Não preencha um campo só para não deixá-lo vazio.** Vazio é uma informação
+honesta; inventado, não.
 
-Categorias, preços, faixa etária e número de vagas ficam **no banco**, não no
-código, porque o valor cobrado precisa ser recalculado no servidor e o histórico
-precisa ser preservado.
+### Preços — no painel, não no código
 
-Edite `prisma/seed.ts` e rode `npm run db:seed` (é idempotente: rodar de novo
-atualiza em vez de duplicar). Para ajustes pontuais, `npm run db:studio` edita
-direto no banco.
+Preços e descrições ficam **no banco**, e o organizador os define em
+**`/admin/categorias`**, sem tocar em código.
 
-> **Preços são sempre em CENTAVOS.** `15000` = R$ 150,00. Essa é a unidade que a
-> AbacatePay usa, e mantê-la ponta a ponta elimina erro de arredondamento.
+Uma categoria com preço `null` significa **valor não definido** — e não
+gratuito. Enquanto estiver assim:
 
-As categorias que vêm no seed (MX1, MX2, Intermediária, Amador, Júnior) são
-**exemplos**, não as categorias oficiais de nenhum campeonato.
+- aparece no site marcada como "valor a definir";
+- **ninguém consegue se inscrever nela** — o bloqueio é no servidor, não só na
+  tela: uma requisição montada à mão recebe `409 PRICE_NOT_SET`;
+- o painel exibe um aviso listando exatamente quais categorias faltam;
+- se *nenhuma* categoria tiver preço, a home troca o botão de inscrição por
+  "ver categorias" e explica que as inscrições abrem quando os valores saírem.
+
+Para definir: entre em `/admin/categorias`, digite o valor em reais (`150` ou
+`150,00`) e salve. O site público reflete na hora. Apagar o campo devolve a
+categoria para "a definir".
+
+> Inscrições já feitas **mantêm** o valor cobrado na época
+> (`RegistrationCategory.priceCents`). Mudar o preço no painel afeta apenas as
+> próximas.
+
+### As 15 categorias oficiais
+
+MX1 · MX2 · MX3 · MX4 · Nacional A · Nacional B · Trilheiros · Local · 50cc ·
+65cc · 80cc · Intermediária A · Intermediária B · Força Livre Nacional · Força
+Livre Importada
+
+Carregadas por `npm run db:seed`, que é idempotente e **não sobrescreve preços
+já definidos** no painel.
 
 ---
 
@@ -264,7 +315,8 @@ O que é verificado:
 4. Pagamento aprovado pelo gateway confirma a inscrição
 5. Reentrega do webhook não confirma duas vezes nem duplica pagamento
 6. Alterar o preço da categoria não altera inscrições anteriores
-7. Gateway devolvendo valor divergente faz a cobrança ser recusada
+7. **Categoria sem preço é recusada** (`PRICE_NOT_SET`), sem gravar inscrição parcial
+8. Gateway devolvendo valor divergente faz a cobrança ser recusada
 
 ### Testando com dinheiro de mentira na AbacatePay
 
@@ -283,6 +335,8 @@ dessas cobranças como paga, permitindo ensaiar o fluxo real antes do evento.
    URLs de retorno enviadas ao gateway.
 4. Rode `npm run db:deploy` e depois `npm run db:seed`.
 5. Cadastre a URL do webhook no painel da AbacatePay (seção acima).
+6. Entre em `/admin/categorias` e **defina os preços** — as inscrições só abrem
+   depois disso.
 
 `prisma generate` roda no `postinstall`, então o cliente é gerado
 automaticamente no build.
@@ -310,12 +364,13 @@ src/
     inscricao/[publicId]/pagamento/ Pagamento
     admin/login/                    Login (fora da guarda de sessão)
     admin/(protected)/              Painel — a guarda cobre tudo aqui dentro
+    admin/(protected)/categorias/   Definição de preços pelo organizador
     api/registrations/              Criação, cobrança e status
     api/webhooks/abacatepay/        Webhook
   components/            Peças de UI
 prisma/
   schema.prisma          Modelo de dados
-  seed.ts                Categorias de DEMONSTRAÇÃO
+  seed.ts                As 15 categorias oficiais
 scripts/
   test-fluxo.mts         Teste ponta a ponta do pagamento
 ```

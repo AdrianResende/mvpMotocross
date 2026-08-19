@@ -89,6 +89,10 @@ export async function getDashboardStats() {
 
   const countByCategory = new Map(perCategory.map((row) => [row.categoryId, row._count._all]));
 
+  const missingPrice = categories.filter(
+    (category) => category.active && category.priceCents === null,
+  );
+
   return {
     total: byStatus.reduce((sum, row) => sum + row._count._all, 0),
     paid: countFor("PAID"),
@@ -102,6 +106,11 @@ export async function getDashboardStats() {
       priceCents: category.priceCents,
       count: countByCategory.get(category.id) ?? 0,
       maxPilots: category.maxPilots,
+    })),
+    /** Categorias ativas sem preço: bloqueiam inscrição até serem preenchidas. */
+    categoriesMissingPrice: missingPrice.map((category) => ({
+      id: category.id,
+      name: category.name,
     })),
   };
 }

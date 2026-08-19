@@ -109,11 +109,12 @@ export default async function AdminRegistrationDetailPage({
                     {formatCents(item.priceCents)}
                     {/* Deixa visível quando o catálogo mudou depois da
                         inscrição — o valor cobrado continua sendo o congelado. */}
-                    {item.priceCents !== item.category.priceCents && (
-                      <span className="block text-xs text-chalk-dim">
-                        hoje: {formatCents(item.category.priceCents)}
-                      </span>
-                    )}
+                    {item.category.priceCents !== null &&
+                      item.priceCents !== item.category.priceCents && (
+                        <span className="block text-xs text-chalk-dim">
+                          hoje: {formatCents(item.category.priceCents)}
+                        </span>
+                      )}
                   </>
                 }
               />

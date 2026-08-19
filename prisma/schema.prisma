@@ -80,12 +80,18 @@ model Category {
   /// Identificador estável usado pelo seed e pelas URLs. Ex.: "mx1".
   slug        String  @unique
   name        String
-  description String
+  /// Descrição opcional. Vazio quando a organização não informou.
+  description String?
   /// Preço vigente da inscrição, em centavos.
-  priceCents  Int
+  ///
+  /// `null` significa PREÇO AINDA NÃO DEFINIDO — não significa gratuito.
+  /// Categorias sem preço não aceitam inscrição; o organizador define o valor
+  /// pelo painel, em /admin/categorias.
+  priceCents  Int?
+  /// Faixa etária. `null` = a organização não informou restrição.
   minAge      Int?
   maxAge      Int?
-  /// Vagas totais. `null` = sem limite.
+  /// Vagas totais. `null` = a organização não informou limite.
   maxPilots   Int?
   notes       String?
   active      Boolean @default(true)

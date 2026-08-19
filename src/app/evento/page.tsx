@@ -1,61 +1,70 @@
 import type { Metadata } from "next";
 import { eventConfig } from "@/config/event";
-import { formatLongDate, formatDateTime } from "@/lib/format";
+import { formatDateTime, formatShortDate, formatWeekday } from "@/lib/format";
 import { ActionLink, Card, SectionTitle } from "@/components/ui";
+import { WhatsAppButton } from "@/components/whatsapp-button";
 
 export const metadata: Metadata = {
   title: "O evento",
-  description: eventConfig.description,
+  description: `${eventConfig.name} — ${eventConfig.location.name}, ${eventConfig.location.city}.`,
 };
 
 export default function EventPage() {
-  const { venue, contact } = eventConfig;
-  const hasContact = contact.phone || contact.whatsapp || contact.email || contact.instagram;
+  const { location, contact } = eventConfig;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:py-16">
-      <p className="display-label text-sm text-race-500">{eventConfig.edition}</p>
+      <p className="display-label text-sm text-race-500">{eventConfig.subtitle}</p>
       <h1 className="display-title mt-2 text-4xl text-chalk sm:text-6xl">
         {eventConfig.name}
       </h1>
-      <p className="mt-5 max-w-2xl text-lg text-chalk-dim">{eventConfig.description}</p>
+
+      {eventConfig.description && (
+        <p className="mt-5 max-w-2xl text-lg text-chalk-dim">{eventConfig.description}</p>
+      )}
 
       {/* ---------------------------------------------------------- ESSENCIAL */}
-      <Card className="mt-10 p-5 sm:p-6">
+      <Card className="mt-8 p-5 sm:p-6">
         <dl className="grid gap-5 sm:grid-cols-2">
-          <Fact label="Data" value={formatLongDate(eventConfig.date)} />
-          <Fact label="Abertura dos portões" value={`${eventConfig.gatesOpenAt}h`} />
           <Fact
             label="Local"
             value={
               <>
-                {venue.name}
-                {venue.address && (
+                {location.name}
+                <br />
+                <span className="text-chalk-dim">
+                  {location.city}
+                  {location.state && ` — ${location.state}`}
+                </span>
+                {/* Endereço completo aparece automaticamente quando a
+                    organização informar. Até lá, só o local oficial. */}
+                {location.address && (
                   <>
                     <br />
-                    <span className="text-chalk-dim">{venue.address}</span>
-                  </>
-                )}
-                {(venue.city || venue.state) && (
-                  <>
-                    <br />
-                    <span className="text-chalk-dim">
-                      {[venue.city, venue.state].filter(Boolean).join(" — ")}
-                    </span>
+                    <span className="text-chalk-dim">{location.address}</span>
                   </>
                 )}
               </>
             }
           />
+          <Fact label="Entrada" value={eventConfig.entranceInformation} />
           <Fact
-            label="Inscrições online até"
-            value={formatDateTime(eventConfig.registrationsCloseAt)}
+            label="Datas"
+            value={eventConfig.schedule
+              .map((day) => `${formatWeekday(day.date)}, ${formatShortDate(day.date)}`)
+              .join(" · ")}
           />
+          {eventConfig.registrationsCloseAt && (
+            <Fact
+              label="Inscrições online até"
+              value={formatDateTime(eventConfig.registrationsCloseAt)}
+            />
+          )}
         </dl>
 
-        {venue.mapsUrl && (
+        {location.mapsUrl && (
           <a
-            href={venue.mapsUrl}
+            href={location.mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="display-label tap-target mt-6 inline-flex items-center justify-center border-2 border-chalk/25 px-5 text-sm text-chalk transition-colors hover:border-race-500 hover:text-race-400"
@@ -67,73 +76,101 @@ export default function EventPage() {
 
       {/* -------------------------------------------------------- PROGRAMAÇÃO */}
       <section className="mt-14">
-        <SectionTitle eyebrow="Como será o dia">Programação</SectionTitle>
-        {eventConfig.isDemoData && (
-          <p className="mt-4 border-l-2 border-race-500 bg-dirt-900 py-3 pl-4 text-sm text-chalk-dim">
-            Os horários abaixo são <strong className="text-chalk">exemplos</strong>. O
-            organizador ajusta a lista em <code className="text-race-400">src/config/event.ts</code>.
-          </p>
-        )}
-
-        <ol className="mt-6 space-y-px">
-          {eventConfig.schedule.map((item) => (
-            <li
-              key={`${item.time}-${item.title}`}
-              className="flex flex-col gap-1 border-l-2 border-race-500/40 bg-dirt-900 py-4 pl-4 sm:flex-row sm:items-baseline sm:gap-6"
-            >
-              <span className="display-label w-16 shrink-0 text-lg text-race-400">
-                {item.time}
-              </span>
-              <span className="font-semibold text-chalk">{item.title}</span>
-              {item.description && (
-                <span className="text-sm text-chalk-dim sm:ml-auto sm:text-right">
-                  {item.description}
-                </span>
-              )}
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      {/* -------------------------------------------------------------- REGRAS */}
-      <section className="mt-14">
-        <SectionTitle eyebrow="Leia antes de vir">Regras e informações</SectionTitle>
+        <SectionTitle eyebrow="Dois dias de prova">Programação</SectionTitle>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          {eventConfig.rules.map((section) => (
-            <Card key={section.title} className="p-5">
-              <h3 className="display-label text-sm text-race-400">{section.title}</h3>
-              <ul className="mt-3 space-y-2">
-                {section.items.map((item) => (
-                  <li key={item} className="flex gap-2.5 text-sm text-chalk-dim">
-                    <span aria-hidden className="mt-1.5 block h-1.5 w-1.5 shrink-0 -skew-x-12 bg-race-500" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
+          {eventConfig.schedule.map((day) => (
+            <Card key={day.date} className="p-5">
+              <p className="display-label text-sm text-race-500">{formatWeekday(day.date)}</p>
+              <p className="display-title mt-1 text-3xl text-chalk">
+                {formatShortDate(day.date)}
+              </p>
+
+              <dl className="mt-5 space-y-3">
+                <div className="flex items-baseline justify-between gap-4 border-b border-dirt-800 pb-3">
+                  <dt className="text-sm text-chalk-dim">Evento a partir das</dt>
+                  <dd className="display-title text-2xl text-chalk">{day.startTime}</dd>
+                </div>
+                {day.raceTime && (
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="text-sm text-chalk-dim">Corrida</dt>
+                    <dd className="display-title text-2xl text-race-400">{day.raceTime}</dd>
+                  </div>
+                )}
+              </dl>
+
+              {day.description && (
+                <p className="mt-4 text-sm text-chalk-dim">{day.description}</p>
+              )}
             </Card>
           ))}
         </div>
+
+        {/* Honestidade: a programação tem só o que a organização informou. */}
+        <p className="mt-4 border-l-2 border-dirt-700 pl-4 text-sm text-dirt-600">
+          Estes são os horários informados pela organização. Demais horários do dia serão
+          divulgados pela organização.
+        </p>
       </section>
 
-      {/* ----------------------------------------------------------------- FAQ */}
-      {eventConfig.faq.length > 0 && (
+      {/* ----------------------------------------------------- AÇÃO ESPECIAL */}
+      {eventConfig.specialEvents.length > 0 && (
         <section className="mt-14">
-          <SectionTitle eyebrow="Dúvidas comuns">Perguntas frequentes</SectionTitle>
-          <div className="mt-6 space-y-px">
-            {eventConfig.faq.map((item) => (
-              <details key={item.question} className="group bg-dirt-900 p-5">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-chalk">
-                  {item.question}
-                  <span
-                    aria-hidden
-                    className="shrink-0 text-race-500 transition-transform group-open:rotate-45"
-                  >
-                    +
-                  </span>
-                </summary>
-                <p className="mt-3 text-sm text-chalk-dim">{item.answer}</p>
-              </details>
+          <SectionTitle eyebrow="Atração do evento">Categoria Leiteiro</SectionTitle>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            {eventConfig.specialEvents.map((special) => (
+              <div key={special.title} className="border-2 border-race-500 bg-race-500/10 p-6">
+                <p className="display-title text-3xl text-chalk">{special.title}</p>
+                <p className="mt-2 text-chalk-dim">{special.description}</p>
+                <div className="mt-5 border-t border-race-500/40 pt-4">
+                  <p className="display-label text-xs text-race-400">Prêmio</p>
+                  <p className="display-title mt-1 text-2xl text-race-400">{special.prize}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* --------------------------------------------------------- HOSPEDAGEM */}
+      <section className="mt-14">
+        <SectionTitle eyebrow="Para quem vem de longe">Hospedagem no local</SectionTitle>
+        <Card className="mt-6 p-5 sm:p-6">
+          <p className="text-lg text-chalk">{eventConfig.accommodationInformation}</p>
+          <p className="mt-3 text-sm text-chalk-dim">
+            Valores, número de vagas, estrutura, horários e condições de reserva devem ser
+            combinados diretamente com a organização.
+          </p>
+          <div className="mt-6">
+            <WhatsAppButton
+              label="Entrar em contato"
+              message={`Olá! Gostaria de informações sobre a hospedagem no ${eventConfig.name}.`}
+            />
+          </div>
+        </Card>
+      </section>
+
+      {/* -------------------------------------------------------------- REGRAS */}
+      {eventConfig.rules.length > 0 && (
+        <section className="mt-14">
+          <SectionTitle eyebrow="Leia antes de vir">Regras e informações</SectionTitle>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            {eventConfig.rules.map((section) => (
+              <Card key={section.title} className="p-5">
+                <h3 className="display-label text-sm text-race-400">{section.title}</h3>
+                <ul className="mt-3 space-y-2">
+                  {section.items.map((item) => (
+                    <li key={item} className="flex gap-2.5 text-sm text-chalk-dim">
+                      <span
+                        aria-hidden
+                        className="mt-1.5 block h-1.5 w-1.5 shrink-0 -skew-x-12 bg-race-500"
+                      />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
             ))}
           </div>
         </section>
@@ -141,57 +178,26 @@ export default function EventPage() {
 
       {/* ------------------------------------------------------------- CONTATO */}
       <section className="mt-14">
-        <SectionTitle eyebrow="Fale com a organização">Contato</SectionTitle>
-        <Card className="mt-6 p-5">
-          {hasContact ? (
-            <ul className="space-y-3 text-sm">
-              {contact.phone && (
-                <li>
-                  <span className="display-label text-xs text-chalk-dim">Telefone</span>
-                  <br />
-                  <a href={`tel:${contact.phone}`} className="text-chalk hover:text-race-400">
-                    {contact.phone}
-                  </a>
-                </li>
-              )}
-              {contact.whatsapp && (
-                <li>
-                  <span className="display-label text-xs text-chalk-dim">WhatsApp</span>
-                  <br />
-                  <a
-                    href={`https://wa.me/${contact.whatsapp}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-chalk hover:text-race-400"
-                  >
-                    Abrir conversa
-                  </a>
-                </li>
-              )}
-              {contact.email && (
-                <li>
-                  <span className="display-label text-xs text-chalk-dim">E-mail</span>
-                  <br />
-                  <a href={`mailto:${contact.email}`} className="text-chalk hover:text-race-400">
-                    {contact.email}
-                  </a>
-                </li>
-              )}
-              {contact.instagram && (
-                <li>
-                  <span className="display-label text-xs text-chalk-dim">Instagram</span>
-                  <br />
-                  <span className="text-chalk">{contact.instagram}</span>
-                </li>
-              )}
-            </ul>
-          ) : (
-            <p className="text-sm text-chalk-dim">
-              Nenhum contato cadastrado ainda. Preencha o bloco{" "}
-              <code className="text-race-400">contact</code> em{" "}
-              <code className="text-race-400">src/config/event.ts</code> para exibi-lo aqui.
-            </p>
+        <SectionTitle eyebrow="Dúvidas sobre o evento">Contato</SectionTitle>
+        <Card className="mt-6 p-5 sm:p-6">
+          {contact.phone && (
+            <div>
+              <p className="display-label text-xs text-race-500">Telefone / WhatsApp</p>
+              <p className="display-title mt-1 text-3xl text-chalk">{contact.phone}</p>
+            </div>
           )}
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <WhatsAppButton label="Falar com a organização" />
+            {contact.phone && (
+              <a
+                href={`tel:+${eventConfig.contact.whatsapp}`}
+                className="display-label tap-target inline-flex -skew-x-12 items-center justify-center border-2 border-chalk/25 px-6 text-sm text-chalk transition-colors hover:border-race-500 hover:text-race-400"
+              >
+                <span className="skew-x-12">Ligar</span>
+              </a>
+            )}
+          </div>
         </Card>
       </section>
 
