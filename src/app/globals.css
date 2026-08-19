@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/*
+ * SISTEMA VISUAL — CAMPEONATO DE MOTOCROSS
+ * ========================================
+ * Paleta escura de alto contraste: preto de terra batida, laranja de
+ * combustível e verde-limão de bandeira. O site assume tema escuro em toda
+ * parte — é uma decisão de design, não um esquecimento.
+ */
+
+@theme {
+  /* Base — pretos com um leve calor de terra, nunca cinza neutro. */
+  --color-dirt-950: #0a0705;
+  --color-dirt-900: #12100d;
+  --color-dirt-850: #191512;
+  --color-dirt-800: #221c17;
+  --color-dirt-700: #332a22;
+  --color-dirt-600: #4a3d31;
+
+  /* Laranja de corrida — a cor de ação do site. */
+  --color-race-400: #ff9838;
+  --color-race-500: #ff7a00;
+  --color-race-600: #e85d00;
+
+  /* Verde de bandeira — confirmação, pagamento aprovado. */
+  --color-flag-400: #a3e635;
+  --color-flag-500: #84cc16;
+
+  /* Textos. */
+  --color-chalk: #f5f1ec;
+  --color-chalk-dim: #a89f95;
+
+  --font-display: var(--font-barlow-condensed), "Arial Narrow", sans-serif;
+  --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-dirt-950);
+  color: var(--color-chalk);
+  font-family: var(--font-sans);
+  /* Impede o "salto" horizontal causado por elementos inclinados. */
+  overflow-x: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@utility display-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: -0.015em;
+  line-height: 0.92;
+}
+
+@utility display-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Faixa diagonal de advertência, usada nos avisos de demonstração. */
+@utility hazard-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--color-race-500) 22%, transparent) 0 10px,
+    transparent 10px 20px
+  );
+}
+
+/* Textura de terra: granulado sutil sobre o fundo das seções. */
+@utility dirt-texture {
+  background-image: radial-gradient(
+      circle at 15% 20%,
+      color-mix(in srgb, var(--color-race-500) 7%, transparent) 0%,
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 85% 75%,
+      color-mix(in srgb, var(--color-race-600) 6%, transparent) 0%,
+      transparent 50%
+    );
+}
+
+/* Alvo de toque confortável no celular. */
+@utility tap-target {
+  min-height: 3rem;
+}
