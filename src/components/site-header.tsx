@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const NAV_LINKS = [
   { href: "/", label: "Início" },
@@ -17,11 +17,6 @@ const NAV_LINKS = [
 export function SiteHeader() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-
-  // Fecha o menu ao navegar, senão ele fica aberto sobre a página nova.
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
 
   // A área administrativa tem seu próprio cabeçalho.
   if (pathname.startsWith("/admin")) return null;
@@ -96,6 +91,8 @@ export function SiteHeader() {
               <Link
                 key={link.href}
                 href={link.href}
+                // Fecha o menu ao navegar, senão ele cobre a página nova.
+                onClick={() => setMenuOpen(false)}
                 className="display-label tap-target flex items-center border-b border-dirt-800 text-sm text-chalk"
               >
                 {link.label}
@@ -103,6 +100,7 @@ export function SiteHeader() {
             ))}
             <Link
               href="/inscricao"
+              onClick={() => setMenuOpen(false)}
               className="display-label tap-target mt-3 mb-3 flex items-center justify-center bg-race-500 text-sm text-dirt-950"
             >
               Fazer inscrição

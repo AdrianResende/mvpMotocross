@@ -107,3 +107,43 @@ body {
 @utility tap-target {
   min-height: 3rem;
 }
+
+/*
+ * IMPRESSÃO — usada pelo botão "Baixar comprovante", que abre a caixa de
+ * impressão do navegador (onde "Salvar como PDF" é opção padrão).
+ * O comprovante sai em preto sobre branco, sem cabeçalho, rodapé nem menus.
+ */
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Menus, rodapé e a faixa de demonstração não vão para o papel. */
+  header,
+  footer,
+  nav {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  /* Neutraliza a paleta escura: fundos claros e texto legível impresso. */
+  [class*="bg-dirt"],
+  [class*="bg-race"],
+  [class*="bg-flag"] {
+    background: #fff !important;
+  }
+
+  [class*="text-chalk"],
+  [class*="text-race"],
+  [class*="text-flag"] {
+    color: #000 !important;
+  }
+
+  [class*="border-"] {
+    border-color: #999 !important;
+  }
+}

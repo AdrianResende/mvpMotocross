@@ -50,6 +50,17 @@ export const serverEnv = {
     return (optional("ABACATEPAY_WEBHOOK_SIGNATURE_HEADER") ?? "x-webhook-signature").toLowerCase();
   },
 
+  /**
+   * Habilita o botão de cartão de crédito na tela de pagamento.
+   *
+   * Desligado por padrão: `CARD` é marcado como recurso em BETA na
+   * documentação da AbacatePay e depende de liberação na conta do organizador.
+   * Ligue apenas depois de confirmar no painel que o método está ativo.
+   */
+  get abacatePayCardEnabled() {
+    return optional("ABACATEPAY_CARD_ENABLED") === "true";
+  },
+
   get adminPassword() {
     return optional("ADMIN_PASSWORD");
   },
