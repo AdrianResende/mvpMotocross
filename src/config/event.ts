@@ -62,13 +62,11 @@ export const eventConfig = {
     /** UF não informada pela organização. */
     state: null as string | null,
 
-    // Campos preparados para receber os dados quando a organização informar.
-    // Enquanto forem `null`, o site mostra apenas o local acima e não exibe
-    // botão de rota.
+    /** Endereço completo não informado pela organização. */
     address: null as string | null,
-    latitude: null as number | null,
-    longitude: null as number | null,
-    mapsUrl: null as string | null,
+    latitude: -21.028347 as number | null,
+    longitude: -44.266558 as number | null,
+    mapsUrl: "https://www.google.com/maps?q=-21.028347,-44.266558" as string | null,
   },
 
   // ------------------------------------------------------------ PROGRAMAÇÃO
