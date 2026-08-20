@@ -20,6 +20,37 @@ export type AdminFilters = {
   search?: string;
 };
 
+const VALID_STATUSES = ["PENDING", "PAID", "CANCELLED"] as const;
+
+/** Lê os filtros da query string. Compartilhado entre a página e a exportação CSV. */
+export function parseAdminFilters(
+  params: Record<string, string | string[] | undefined>,
+): AdminFilters {
+  return {
+    status: pickStatus(params.status),
+    categoryId: pickString(params.categoria),
+    from: pickDate(params.de),
+    to: pickDate(params.ate),
+    search: pickString(params.busca),
+  };
+}
+
+function pickStatus(value: string | string[] | undefined): RegistrationStatus | undefined {
+  const raw = pickString(value);
+  return VALID_STATUSES.find((status) => status === raw);
+}
+
+function pickString(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const trimmed = raw?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function pickDate(value: string | string[] | undefined): string | undefined {
+  const raw = pickString(value);
+  return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
+}
+
 /** Traduz os filtros da query string para um `where` do Prisma. */
 function buildWhere(filters: AdminFilters) {
   const where: Record<string, unknown> = {};

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { eventConfig } from "@/config/event";
 import { formatDateTime, formatShortDate, formatWeekday } from "@/lib/format";
 import { ActionLink, Card, SectionTitle } from "@/components/ui";
@@ -73,6 +74,45 @@ export default function EventPage() {
           </a>
         )}
       </Card>
+
+      {/* ------------------------------------------------------------- A PISTA */}
+      <section className="mt-14">
+        <SectionTitle eyebrow="Pista de cara nova!">Conheça a pista</SectionTitle>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="relative aspect-[3/4] overflow-hidden border border-dirt-800">
+            <Image
+              src="/pista-1.jpg"
+              alt={`Vista da pista do ${eventConfig.name}`}
+              fill
+              sizes="(min-width: 640px) 50vw, 100vw"
+              className="object-cover"
+            />
+          </div>
+          <div className="relative aspect-[3/4] overflow-hidden border border-dirt-800">
+            <Image
+              src="/pista-2.jpg"
+              alt={`Vista da pista do ${eventConfig.name}`}
+              fill
+              sizes="(min-width: 640px) 50vw, 100vw"
+              className="object-cover"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="overflow-hidden border border-dirt-800">
+            <video controls playsInline poster="/pista-1.jpg" className="w-full">
+              <source src="/pista-video.mp4" type="video/mp4" />
+            </video>
+          </div>
+          <div className="overflow-hidden border border-dirt-800">
+            <video controls playsInline poster="/pista-2.jpg" className="w-full">
+              <source src="/pistaVideo.mp4" type="video/mp4" />
+            </video>
+          </div>
+        </div>
+      </section>
 
       {/* -------------------------------------------------------- PROGRAMAÇÃO */}
       <section className="mt-14">

@@ -5,9 +5,10 @@ import {
   getDashboardStats,
   listCategoriesForFilter,
   listRegistrations,
+  parseAdminFilters,
   type AdminFilters,
 } from "@/lib/admin-data";
-import { formatCents, formatCpf, formatDateTime } from "@/lib/format";
+import { formatCents, formatCpf, formatDateTime, formatPaymentKind } from "@/lib/format";
 import { Alert, Card, StatusBadge } from "@/components/ui";
 import { RegistrationFilters } from "./filters";
 
@@ -21,8 +22,6 @@ export const dynamic = "force-dynamic";
 /** Quantas linhas a tabela carrega de uma vez. */
 const ROW_LIMIT = 200;
 
-const VALID_STATUSES = ["PENDING", "PAID", "CANCELLED"] as const;
-
 export default async function AdminDashboardPage({
   searchParams,
 }: {
@@ -31,13 +30,7 @@ export default async function AdminDashboardPage({
   const params = await searchParams;
 
   // A query string vem do usuário: cada campo é validado antes de virar filtro.
-  const filters: AdminFilters = {
-    status: pickStatus(params.status),
-    categoryId: pickString(params.categoria),
-    from: pickDate(params.de),
-    to: pickDate(params.ate),
-    search: pickString(params.busca),
-  };
+  const filters = parseAdminFilters(params);
 
   const [stats, registrations, matching, categories] = await Promise.all([
     getDashboardStats(),
@@ -119,12 +112,23 @@ export default async function AdminDashboardPage({
 
       {/* ------------------------------------------------------------ TABELA */}
       <section className="mt-6">
-        <p className="text-sm text-chalk-dim">
-          {matching === 0
-            ? "Nenhuma inscrição encontrada com esses filtros."
-            : `${matching} inscriç${matching === 1 ? "ão" : "ões"} encontrada${matching === 1 ? "" : "s"}`}
-          {matching > ROW_LIMIT && ` — exibindo as ${ROW_LIMIT} mais recentes.`}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-chalk-dim">
+            {matching === 0
+              ? "Nenhuma inscrição encontrada com esses filtros."
+              : `${matching} inscriç${matching === 1 ? "ão" : "ões"} encontrada${matching === 1 ? "" : "s"}`}
+            {matching > ROW_LIMIT && ` — exibindo as ${ROW_LIMIT} mais recentes.`}
+          </p>
+
+          {matching > 0 && (
+            <a
+              href={`/admin/exportar?${buildExportQuery(filters)}`}
+              className="display-label tap-target inline-flex -skew-x-12 items-center justify-center border-2 border-chalk/25 px-4 py-2 text-xs text-chalk transition-colors hover:border-race-500 hover:text-race-400"
+            >
+              <span className="skew-x-12">Exportar CSV</span>
+            </a>
+          )}
+        </div>
 
         {registrations.length > 0 && (
           // A tabela rola dentro do próprio container: no celular a página
@@ -183,7 +187,7 @@ export default async function AdminDashboardPage({
                           <>
                             <br />
                             <span className="text-xs text-chalk-dim">
-                              {payment.kind === "PIX_QRCODE" ? "PIX" : "Checkout"}
+                              {formatPaymentKind(payment.kind)}
                               {payment.devMode && " · teste"}
                             </span>
                           </>
@@ -204,22 +208,6 @@ export default async function AdminDashboardPage({
       </section>
     </div>
   );
-}
-
-function pickStatus(value: string | string[] | undefined): AdminFilters["status"] {
-  const raw = pickString(value);
-  return VALID_STATUSES.find((status) => status === raw);
-}
-
-function pickString(value: string | string[] | undefined): string | undefined {
-  const raw = Array.isArray(value) ? value[0] : value;
-  const trimmed = raw?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function pickDate(value: string | string[] | undefined): string | undefined {
-  const raw = pickString(value);
-  return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
 }
 
 function Stat({
@@ -254,4 +242,15 @@ function Th({ children }: { children: React.ReactNode }) {
 
 function Td({ children }: { children: React.ReactNode }) {
   return <td className="px-3 py-3 align-top">{children}</td>;
+}
+
+/** Repassa os filtros atuais para a rota de exportação, com os mesmos nomes da URL. */
+function buildExportQuery(filters: AdminFilters): string {
+  const query = new URLSearchParams();
+  if (filters.status) query.set("status", filters.status);
+  if (filters.categoryId) query.set("categoria", filters.categoryId);
+  if (filters.from) query.set("de", filters.from);
+  if (filters.to) query.set("ate", filters.to);
+  if (filters.search) query.set("busca", filters.search);
+  return query.toString();
 }

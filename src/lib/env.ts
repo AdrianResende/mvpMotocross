@@ -33,6 +33,9 @@ export const serverEnv = {
     return (optional("APP_BASE_URL") ?? "http://localhost:3000").replace(/\/+$/, "");
   },
 
+  // Legado da integração com a AbacatePay — mantidas porque o cliente em
+  // `abacatepay.ts` continua no repositório, mas nada em `payments.ts` as usa
+  // mais. Veja README para religar, se um dia fizer sentido.
   get abacatePayApiKey() {
     return optional("ABACATEPAY_API_KEY");
   },
@@ -50,15 +53,27 @@ export const serverEnv = {
     return (optional("ABACATEPAY_WEBHOOK_SIGNATURE_HEADER") ?? "x-webhook-signature").toLowerCase();
   },
 
+  /** Sua InfiniteTag, sem "@" ou "$". É o identificador da sua conta — não é secreta. */
+  get infinitePayHandle() {
+    return optional("INFINITEPAY_HANDLE");
+  },
+
+  /** Opcional: só necessário se a sua conta exigir Bearer token para consultar status. */
+  get infinitePayApiToken() {
+    return optional("INFINITEPAY_API_TOKEN");
+  },
+
   /**
-   * Habilita o botão de cartão de crédito na tela de pagamento.
-   *
-   * Desligado por padrão: `CARD` é marcado como recurso em BETA na
-   * documentação da AbacatePay e depende de liberação na conta do organizador.
-   * Ligue apenas depois de confirmar no painel que o método está ativo.
+   * Segredo que nós mesmos definimos e embutimos na `webhook_url` enviada à
+   * InfinitePay na criação do link — ela não tem assinatura própria de
+   * webhook, então este é quem impede chamadas aleatórias ao endpoint.
    */
-  get abacatePayCardEnabled() {
-    return optional("ABACATEPAY_CARD_ENABLED") === "true";
+  get infinitePayWebhookSecret() {
+    return optional("INFINITEPAY_WEBHOOK_SECRET");
+  },
+
+  get adminEmail() {
+    return optional("ADMIN_EMAIL");
   },
 
   get adminPassword() {
@@ -71,16 +86,16 @@ export const serverEnv = {
 } as const;
 
 /**
- * O gateway só está utilizável quando há uma chave de API configurada.
+ * O gateway só está utilizável quando há uma InfiniteTag configurada.
  * Sem ela o site continua funcionando (inscrições são criadas normalmente),
  * mas a tela de pagamento informa explicitamente que falta configuração —
  * em vez de fingir que uma cobrança foi gerada.
  */
 export function isPaymentGatewayConfigured(): boolean {
-  return Boolean(serverEnv.abacatePayApiKey);
+  return Boolean(serverEnv.infinitePayHandle);
 }
 
-/** O painel admin exige as duas variáveis para poder abrir sessão. */
+/** O painel admin exige as três variáveis para poder abrir sessão. */
 export function isAdminConfigured(): boolean {
-  return Boolean(serverEnv.adminPassword && serverEnv.adminSessionSecret);
+  return Boolean(serverEnv.adminEmail && serverEnv.adminPassword && serverEnv.adminSessionSecret);
 }

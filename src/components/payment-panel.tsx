@@ -2,38 +2,27 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import { formatCents } from "@/lib/format";
 import { ActionButton, Alert, Card } from "./ui";
 
 /**
  * Tela de pagamento.
  *
- * PIX é o caminho principal: QR Code grande e um botão de copiar bem visível,
- * porque quase todo mundo abre esta página no mesmo celular em que vai pagar.
+ * A InfinitePay só oferece checkout hospedado: não existe QR Code embutido no
+ * site. O piloto é redirecionado para a página da InfinitePay, escolhe PIX ou
+ * cartão por lá, e volta para cá depois.
  *
  * Enquanto a página está aberta, ela pergunta ao NOSSO servidor se a inscrição
- * já foi paga. O servidor, por sua vez, confere com a AbacatePay. Nada nesta
+ * já foi paga. O servidor, por sua vez, confere com a InfinitePay. Nada nesta
  * tela decide o status — ela apenas exibe o que o servidor respondeu.
  */
-
-type PixData = {
-  paymentId: string;
-  brCode: string;
-  brCodeBase64: string;
-  expiresAt: string | null;
-  devMode: boolean;
-};
 
 type Props = {
   publicId: string;
   registrationNumber: number;
   totalCents: number;
-  /** Cobrança PIX já existente, se a página foi recarregada. */
-  initialPix: PixData | null;
-  /** Checkout hospedado já criado, se houver. */
+  /** Link de checkout já criado, se a página foi recarregada ou o piloto voltou. */
   initialCheckoutUrl: string | null;
-  cardEnabled: boolean;
   gatewayConfigured: boolean;
 };
 
@@ -44,62 +33,50 @@ export function PaymentPanel({
   publicId,
   registrationNumber,
   totalCents,
-  initialPix,
   initialCheckoutUrl,
-  cardEnabled,
   gatewayConfigured,
 }: Props) {
   const router = useRouter();
 
-  // A cobrança vem sempre das props: depois de `router.refresh()` o servidor
-  // reenvia os dados atualizados. Guardá-la em estado deixaria a tela
-  // mostrando o QR Code antigo.
-  const pix = initialPix;
-  // Único estado local sobre a cobrança: o piloto abriu o checkout de cartão e
-  // decidiu voltar para o PIX.
-  const [preferPix, setPreferPix] = useState(false);
-  const checkoutUrl = preferPix ? null : initialCheckoutUrl;
+  // Vem sempre das props: depois de `router.refresh()` o servidor reenvia o
+  // link atualizado.
+  const checkoutUrl = initialCheckoutUrl;
 
-  const [loading, setLoading] = useState<"PIX" | "CARD" | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   // Evita duas navegações se o polling responder duas vezes seguidas.
   const redirectedRef = useRef(false);
 
-  const createCharge = useCallback(
-    async (method: "PIX" | "CARD") => {
-      setLoading(method);
-      setError(null);
+  const createCharge = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
-      try {
-        const response = await fetch(`/api/registrations/${publicId}/pagamento`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ method }),
-        });
-        const payload = await response.json();
+    try {
+      const response = await fetch(`/api/registrations/${publicId}/pagamento`, {
+        method: "POST",
+      });
+      const payload = await response.json();
 
-        if (!response.ok) {
-          setError(payload.error ?? "Não foi possível gerar a cobrança.");
-          setLoading(null);
-          return;
-        }
-
-        // A rota devolve só o id; recarregamos a página para o servidor
-        // entregar os dados da cobrança já renderizados.
-        router.refresh();
-      } catch {
-        setError("Falha de conexão. Verifique sua internet e tente novamente.");
-        setLoading(null);
+      if (!response.ok) {
+        setError(payload.error ?? "Não foi possível gerar o link de pagamento.");
+        setLoading(false);
+        return;
       }
-    },
-    [publicId, router],
-  );
 
-  // Enquanto houver cobrança em aberto, pergunta ao servidor se já foi paga.
+      // A rota devolve só o id; recarregamos a página para o servidor
+      // entregar o link já renderizado.
+      router.refresh();
+    } catch {
+      setError("Falha de conexão. Verifique sua internet e tente novamente.");
+      setLoading(false);
+    }
+  }, [publicId, router]);
+
+  // Enquanto houver um link em aberto, pergunta ao servidor se já foi pago —
+  // cobre o caso do piloto pagar e voltar sem passar pelo redirect completo.
   useEffect(() => {
-    if (!pix && !checkoutUrl) return;
+    if (!checkoutUrl) return;
     if (!gatewayConfigured) return;
 
     let cancelled = false;
@@ -129,19 +106,7 @@ export function PaymentPanel({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [pix, checkoutUrl, publicId, router, gatewayConfigured]);
-
-  async function copyPixCode() {
-    if (!pix) return;
-
-    try {
-      await navigator.clipboard.writeText(pix.brCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } catch {
-      setError("Não foi possível copiar automaticamente. Selecione o código e copie à mão.");
-    }
-  }
+  }, [checkoutUrl, publicId, router, gatewayConfigured]);
 
   if (!gatewayConfigured) {
     return (
@@ -149,7 +114,7 @@ export function PaymentPanel({
         Sua inscrição <strong>#{registrationNumber}</strong> foi criada e está{" "}
         <strong>pendente</strong>, mas este site ainda não tem o gateway de pagamento
         configurado. O organizador precisa definir a variável{" "}
-        <code>ABACATEPAY_API_KEY</code> no servidor. Guarde o link desta página: assim
+        <code>INFINITEPAY_HANDLE</code> no servidor. Guarde o link desta página: assim
         que a configuração for feita, você poderá pagar por aqui.
       </Alert>
     );
@@ -167,45 +132,20 @@ export function PaymentPanel({
 
       {error && <Alert title="Não deu certo">{error}</Alert>}
 
-      {/* ------------------------------------------------------------- PIX */}
-      {pix ? (
+      {checkoutUrl ? (
         <Card className="p-5">
-          <h2 className="display-title text-2xl text-chalk">Pague com PIX</h2>
+          <h2 className="display-title text-2xl text-chalk">Pagar agora</h2>
           <p className="mt-1.5 text-sm text-chalk-dim">
-            Abra o app do seu banco, escolha PIX e escaneie o código — ou use o
-            copia-e-cola.
+            Você escolhe PIX ou cartão de crédito na página segura da InfinitePay. Ao
+            terminar, você volta para cá automaticamente.
           </p>
 
-          {pix.devMode && (
-            <div className="mt-4">
-              <Alert tone="info" title="Cobrança de teste">
-                Esta cobrança foi criada em modo de desenvolvimento no gateway. Nenhum
-                dinheiro real será movimentado.
-              </Alert>
-            </div>
-          )}
-
-          <div className="mt-5 flex justify-center">
-            {/* O gateway devolve a imagem já como data URL. */}
-            <Image
-              src={pix.brCodeBase64}
-              alt="QR Code do PIX para pagamento da inscrição"
-              width={280}
-              height={280}
-              unoptimized
-              className="h-auto w-full max-w-[280px] border-8 border-white bg-white"
-            />
-          </div>
-
-          <div className="mt-5">
-            <p className="display-label mb-1.5 text-xs text-chalk-dim">PIX copia e cola</p>
-            <p className="max-h-24 overflow-y-auto border border-dirt-700 bg-dirt-950 p-3 font-mono text-xs break-all text-chalk-dim">
-              {pix.brCode}
-            </p>
-            <ActionButton onClick={copyPixCode} className="mt-3 w-full">
-              {copied ? "Código copiado!" : "Copiar código PIX"}
-            </ActionButton>
-          </div>
+          <a
+            href={checkoutUrl}
+            className="display-label tap-target mt-5 flex w-full -skew-x-12 items-center justify-center bg-race-500 px-6 text-sm text-dirt-950 transition-colors hover:bg-race-400"
+          >
+            <span className="skew-x-12">Ir para o pagamento</span>
+          </a>
 
           <div className="mt-5 flex items-center gap-2.5 border-t border-dirt-800 pt-4">
             <span
@@ -220,71 +160,26 @@ export function PaymentPanel({
         </Card>
       ) : (
         <Card className="p-5">
-          <h2 className="display-title text-2xl text-chalk">Escolha como pagar</h2>
+          <h2 className="display-title text-2xl text-chalk">Pagar inscrição</h2>
           <p className="mt-1.5 text-sm text-chalk-dim">
-            O PIX confirma na hora e é a forma mais rápida de garantir sua vaga.
+            PIX confirma na hora; cartão de crédito também é aceito, em até 12x — você
+            escolhe na página do pagamento.
           </p>
 
-          <div className="mt-5 space-y-3">
-            <ActionButton
-              onClick={() => createCharge("PIX")}
-              disabled={loading !== null}
-              className="w-full"
-            >
-              {loading === "PIX" ? "Gerando QR Code…" : "Pagar com PIX"}
-            </ActionButton>
+          <ActionButton onClick={createCharge} disabled={loading} className="mt-5 w-full">
+            {loading ? "Gerando link de pagamento…" : "Pagar agora"}
+          </ActionButton>
 
-            {cardEnabled && (
-              <ActionButton
-                variant="secondary"
-                onClick={() => createCharge("CARD")}
-                disabled={loading !== null}
-                className="w-full"
-              >
-                {loading === "CARD" ? "Abrindo checkout…" : "Pagar com cartão de crédito"}
-              </ActionButton>
-            )}
-          </div>
-
-          {cardEnabled && (
-            <p className="mt-4 text-xs text-dirt-600">
-              O pagamento com cartão acontece no checkout da AbacatePay. Nenhum dado do
-              seu cartão passa por este site.
-            </p>
-          )}
-        </Card>
-      )}
-
-      {/* -------------------------------------------------------- CHECKOUT */}
-      {checkoutUrl && (
-        <Card className="p-5">
-          <h2 className="display-title text-2xl text-chalk">Checkout com cartão</h2>
-          <p className="mt-1.5 text-sm text-chalk-dim">
-            Finalize o pagamento na página segura da AbacatePay. Ao terminar, você volta
-            para cá automaticamente.
+          <p className="mt-4 text-xs text-dirt-600">
+            Nenhum dado do seu cartão passa por este site — o pagamento acontece no
+            checkout da InfinitePay.
           </p>
-          <a
-            href={checkoutUrl}
-            className="display-label tap-target mt-5 flex w-full -skew-x-12 items-center justify-center bg-race-500 px-6 text-sm text-dirt-950 transition-colors hover:bg-race-400"
-          >
-            <span className="skew-x-12">Abrir checkout seguro</span>
-          </a>
-          <button
-            type="button"
-            onClick={() => {
-              setPreferPix(true);
-              void createCharge("PIX");
-            }}
-            className="mt-4 w-full text-sm text-chalk-dim underline underline-offset-2 hover:text-chalk"
-          >
-            Prefiro pagar com PIX
-          </button>
         </Card>
       )}
 
       <p className="text-xs text-dirt-600">
-        Sua inscrição só é confirmada quando a AbacatePay confirmar o pagamento. Chegar
-        a uma tela de sucesso ou voltar do checkout, por si só, não confirma nada.
+        Sua inscrição só é confirmada quando a InfinitePay confirmar o pagamento. Voltar
+        do checkout, por si só, não confirma nada.
       </p>
     </div>
   );

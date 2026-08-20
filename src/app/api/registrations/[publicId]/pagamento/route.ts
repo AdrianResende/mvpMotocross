@@ -1,26 +1,24 @@
 import { NextResponse } from "next/server";
-import { createPaymentSchema } from "@/lib/validation";
 import { findActivePayment, getRegistrationByPublicId } from "@/lib/registrations";
 import { createPaymentForRegistration } from "@/lib/payments";
 import { isPaymentGatewayConfigured } from "@/lib/env";
-import { GatewayNotConfiguredError } from "@/lib/abacatepay";
+import { InfinitePayNotConfiguredError } from "@/lib/infinitepay";
 
 /**
- * POST /api/registrations/[publicId]/pagamento — gera a cobrança.
+ * POST /api/registrations/[publicId]/pagamento — gera o link de checkout.
  *
- * O valor NUNCA vem do corpo da requisição: o único parâmetro aceito é o método
- * ("PIX" ou "CARD"). O valor sai de `registration.totalCents`, gravado quando a
- * inscrição foi criada.
+ * O valor NUNCA vem do corpo da requisição: sai de `registration.totalCents`,
+ * gravado quando a inscrição foi criada. PIX e cartão não são mais escolhidos
+ * aqui — o piloto escolhe na própria página da InfinitePay.
  */
 export async function POST(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ publicId: string }> },
 ) {
   if (!isPaymentGatewayConfigured()) {
     return NextResponse.json(
       {
-        error:
-          "Pagamentos ainda não estão configurados neste site. Defina ABACATEPAY_API_KEY no servidor.",
+        error: "Pagamentos ainda não estão configurados neste site. Defina INFINITEPAY_HANDLE no servidor.",
         code: "GATEWAY_NOT_CONFIGURED",
       },
       { status: 503 },
@@ -29,39 +27,25 @@ export async function POST(
 
   const { publicId } = await params;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Corpo da requisição inválido." }, { status: 400 });
-  }
-
-  const parsed = createPaymentSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Método de pagamento inválido." }, { status: 400 });
-  }
-
   const registration = await getRegistrationByPublicId(publicId);
   if (!registration) {
     return NextResponse.json({ error: "Inscrição não encontrada." }, { status: 404 });
   }
 
-  // Se já existe uma cobrança válida do mesmo tipo, reaproveita em vez de
-  // gerar outra — evita dois QR Codes vivos para a mesma inscrição.
+  // Já existe um link válido: reaproveita em vez de gerar outro.
   const activePayment = findActivePayment(registration);
-  const wantedKind = parsed.data.method === "PIX" ? "PIX_QRCODE" : "BILLING";
-  if (activePayment && activePayment.kind === wantedKind) {
+  if (activePayment && activePayment.kind === "INFINITEPAY" && activePayment.checkoutUrl) {
     return NextResponse.json({ paymentId: activePayment.id, reused: true });
   }
 
   try {
-    const result = await createPaymentForRegistration(registration, parsed.data.method);
+    const result = await createPaymentForRegistration(registration);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 422 });
     }
     return NextResponse.json({ paymentId: result.paymentId, reused: false }, { status: 201 });
   } catch (error) {
-    if (error instanceof GatewayNotConfiguredError) {
+    if (error instanceof InfinitePayNotConfiguredError) {
       return NextResponse.json(
         { error: error.message, code: "GATEWAY_NOT_CONFIGURED" },
         { status: 503 },

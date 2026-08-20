@@ -35,13 +35,17 @@ enum PaymentStatus {
   FAILED
 }
 
-/// Forma de cobrança usada na AbacatePay.
+/// Forma de cobrança.
 ///
-/// PIX_QRCODE -> POST /v1/pixQrCode/create (QR Code exibido no próprio site)
-/// BILLING    -> POST /v1/billing/create   (checkout hospedado, PIX + cartão)
+/// INFINITEPAY -> checkout hospedado da InfinitePay (PIX ou cartão, à escolha
+///                do piloto na própria página da InfinitePay)
+/// PIX_QRCODE, BILLING -> legado da integração com a AbacatePay (ver README)
+/// MANUAL      -> confirmado à mão pelo organizador, fora do gateway (ver `notes`)
 enum PaymentKind {
+  INFINITEPAY
   PIX_QRCODE
   BILLING
+  MANUAL
 }
 
 model Pilot {
@@ -182,9 +186,15 @@ model Payment {
   /// URL do checkout hospedado (apenas para kind = BILLING).
   checkoutUrl String?
 
-  /// PIX copia-e-cola e QR Code (apenas para kind = PIX_QRCODE).
+  /// PIX copia-e-cola e QR Code (apenas para kind = PIX_QRCODE, legado).
   brCode       String?
   brCodeBase64 String?
+
+  /// Só preenchidos em kind = INFINITEPAY, e só depois que o piloto volta do
+  /// checkout ou o webhook chega — a InfinitePay não os devolve na criação do
+  /// link. Sem eles, `payment_check` não pode ser chamado ainda.
+  gatewaySlug           String?
+  gatewayTransactionNsu String?
 
   expiresAt DateTime?
   paidAt    DateTime?
@@ -192,6 +202,10 @@ model Payment {
   /// Ambiente da cobrança no gateway (`devMode`). Cobranças de teste nunca
   /// devem ser confundidas com receita real.
   devMode Boolean @default(false)
+
+  /// Só preenchido em kind = MANUAL: como e por que o organizador confirmou
+  /// este pagamento sem passar pelo gateway. Fica registrado para auditoria.
+  notes String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

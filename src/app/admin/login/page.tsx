@@ -28,9 +28,9 @@ export default async function AdminLoginPage() {
           <LoginForm />
         ) : (
           <Alert title="Painel não configurado">
-            Defina <code>ADMIN_PASSWORD</code> e <code>ADMIN_SESSION_SECRET</code> nas
-            variáveis de ambiente do servidor para habilitar o acesso. Veja{" "}
-            <code>.env.example</code>.
+            Defina <code>ADMIN_EMAIL</code>, <code>ADMIN_PASSWORD</code> e{" "}
+            <code>ADMIN_SESSION_SECRET</code> nas variáveis de ambiente do servidor para
+            habilitar o acesso. Veja <code>.env.example</code>.
           </Alert>
         )}
       </div>

@@ -65,6 +65,28 @@ export function TextField({
   );
 }
 
+export function TextAreaField({
+  label,
+  hint,
+  error,
+  ...props
+}: ComponentProps<"textarea"> & { label: string; hint?: string; error?: string }) {
+  const generatedId = useId();
+  const id = props.id ?? generatedId;
+
+  return (
+    <FieldShell id={id} label={label} hint={hint} error={error}>
+      <textarea
+        {...props}
+        id={id}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className={`${inputBase} min-h-24 resize-y py-2.5`}
+      />
+    </FieldShell>
+  );
+}
+
 export function SelectField({
   label,
   hint,

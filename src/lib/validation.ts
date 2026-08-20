@@ -110,7 +110,3 @@ export const createRegistrationSchema = z.object({
 export type CreateRegistrationInput = z.infer<typeof createRegistrationSchema>;
 export type PilotInput = z.infer<typeof pilotSchema>;
 export type MotorcycleInput = z.infer<typeof motorcycleSchema>;
-
-export const createPaymentSchema = z.object({
-  method: z.enum(["PIX", "CARD"]),
-});

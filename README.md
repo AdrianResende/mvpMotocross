@@ -2,11 +2,12 @@
 
 Site de inscrição online do **Primeiro Motocross CT 147**, em Coronel Xavier
 Chaves — Povoado da Invernada, nos dias **22 e 23 de agosto**. O piloto se
-inscreve pelo celular, escolhe uma ou mais categorias, paga por PIX e recebe a
-confirmação; o organizador acompanha tudo por um painel protegido.
+inscreve pelo celular, escolhe uma ou mais categorias, paga por PIX ou cartão
+pelo checkout da InfinitePay e recebe a confirmação; o organizador acompanha
+tudo por um painel protegido.
 
 **Stack:** Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · PostgreSQL ·
-Prisma 7 · AbacatePay.
+Prisma 7 · InfinitePay.
 
 ---
 
@@ -19,10 +20,13 @@ honesto — avisa o que falta em vez de fingir que está tudo certo.
 | O que | Onde | Sem isso… |
 |---|---|---|
 | **1. Preços das categorias** | painel, em `/admin/categorias` | **As inscrições não abrem.** As 15 categorias existem, mas aparecem como "valor a definir" e o servidor recusa inscrição nelas. Os preços não estavam legíveis no material, e um valor chutado seria pior que nenhum. |
-| **2. Chave da AbacatePay** | `ABACATEPAY_API_KEY` | Inscrições são criadas normalmente, mas a tela de pagamento exibe "Pagamentos ainda não configurados". Nenhuma cobrança é gerada. |
-| **3. Webhook cadastrado no painel da AbacatePay** | painel + `ABACATEPAY_WEBHOOK_SECRET` | Pagamentos ainda são confirmados, porque o site também consulta o gateway ao abrir a página da inscrição e pelo botão do painel. Mas a confirmação deixa de ser instantânea. |
+| **2. InfiniteTag** | `INFINITEPAY_HANDLE` | Inscrições são criadas normalmente, mas a tela de pagamento exibe "Pagamentos ainda não configurados". Nenhum link de checkout é gerado. |
+| **3. Webhook cadastrado no painel da InfinitePay** | painel + `INFINITEPAY_WEBHOOK_SECRET` | Pagamentos ainda são confirmados, porque o site também consulta o gateway quando o piloto volta do checkout e pelo botão do painel. Mas a confirmação deixa de ser instantânea se o piloto fechar a aba antes de voltar. |
 
 Detalhes de cada um mais abaixo.
+
+> Existe também uma **confirmação manual** no painel (`/admin/inscricoes/[número]`),
+> para receber por fora do gateway quando necessário — ver seção própria abaixo.
 
 ---
 
@@ -142,120 +146,105 @@ já definidos** no painel.
 
 ---
 
-## Integração com a AbacatePay
+## Integração com a InfinitePay
 
-### O que foi confirmado na fonte oficial
+### O que foi confirmado, e como
 
-Este projeto **não** foi escrito a partir de suposições sobre a API. Os
-endpoints, nomes de campos, formatos e status abaixo foram lidos nas definições
-de tipos dos pacotes oficiais publicados pela AbacatePay no npm —
-[`@abacatepay/types`](https://www.npmjs.com/package/@abacatepay/types) e
-[`@abacatepay/rest`](https://www.npmjs.com/package/@abacatepay/rest).
+A InfinitePay não publica um pacote de tipos oficial. Os campos abaixo foram
+conferidos contra **duas integrações reais e independentes** (um módulo
+WooCommerce e um módulo WHMCS, ambos em produção) — e testados ao vivo: os
+dois domínios de API documentados respondem o mesmo formato de erro para uma
+requisição inválida, então qualquer um dos dois funciona.
 
 | Item | Valor |
 |---|---|
-| Base URL | `https://api.abacatepay.com/v1` |
-| Autenticação | header `Authorization: Bearer <chave>` |
+| Base URL | `https://api.infinitepay.io/invoices/public/checkout` |
+| Autenticação | o `handle` (sua InfiniteTag) no corpo da requisição — **não** é um secret de servidor |
+| Autenticação extra (opcional) | header `Authorization: Bearer <token>`, só se a sua conta exigir |
 | Valores | sempre em centavos, mínimo `100` (R$ 1,00) |
-| Envelope de resposta | `{ data, error }` |
-| QR Code PIX | `POST /pixQrCode/create` → `brCode`, `brCodeBase64` |
-| Conferir PIX | `GET /pixQrCode/check?id=` |
-| Simular pagamento | `POST /pixQrCode/simulate-payment?id=` (só em devMode) |
-| Checkout hospedado | `POST /billing/create` → `url` |
-| Status possíveis | `PENDING` · `EXPIRED` · `CANCELLED` · `PAID` · `REFUNDED` |
-| Evento de webhook | `billing.paid` |
+| Criar link de checkout | `POST /links` → `{ url }` |
+| Conferir pagamento | `POST /payment_check` → `{ paid, amount, paid_amount, ... }` |
+| Retorno do checkout | a InfinitePay redireciona com `?slug=&transaction_nsu=&order_nsu=&capture_method=&receipt_url=` |
 
-Usamos a **API v1** de propósito: ela aceita os produtos declarados na própria
-requisição, enquanto a v2 exige produtos previamente cadastrados no painel — um
-passo de configuração externa a mais, dispensável para um evento montado em
-poucos dias.
+Diferenças importantes em relação a um gateway com API key de servidor
+(AbacatePay, Stripe etc.):
 
-O cliente HTTP está em [`src/lib/abacatepay.ts`](src/lib/abacatepay.ts), com a
-procedência de cada endpoint comentada.
+- **Não existe QR Code PIX embutido no site.** Só checkout hospedado — o
+  piloto é sempre redirecionado para a página da InfinitePay, escolhe PIX ou
+  cartão por lá, e volta para cá depois.
+- **Não existe modo de teste/sandbox documentado.** Todo link criado é real.
+  `npm run test:fluxo` continua funcionando porque substitui o `fetch`, não
+  depende de um `devMode` do gateway.
+- **O webhook não manda um status "pago".** Manda `amount` e `paid_amount` —
+  quem decide se bate é o nosso servidor (ver seção Webhook).
 
-### Cartão de crédito é BETA
+O cliente HTTP está em [`src/lib/infinitepay.ts`](src/lib/infinitepay.ts), com
+a procedência de cada campo comentada.
 
-A documentação oficial marca o método `CARD` como **recurso em beta**, cuja
-disponibilidade depende de liberação na conta do organizador.
+### Legado: AbacatePay
 
-Por isso o botão de cartão vem **desligado**. Para habilitá-lo, confirme no
-painel da AbacatePay que o método está ativo na sua conta e então defina:
-
-```
-ABACATEPAY_CARD_ENABLED=true
-```
-
-Quando ligado, o pagamento com cartão acontece no **checkout hospedado da
-AbacatePay** (`billing/create`). Nenhum dado de cartão passa por este servidor —
-não existe, e não deve existir, processamento próprio de cartão aqui.
+Este projeto usava a AbacatePay antes. O cliente
+([`src/lib/abacatepay.ts`](src/lib/abacatepay.ts)) e a rota de webhook
+(`src/app/api/webhooks/abacatepay/`) continuam no repositório, mas
+**nada em `payments.ts` os chama mais** — foram deixados como referência e
+para o caso de a conta ser aprovada e fizer sentido voltar a usá-la. Uma
+cobrança antiga com `kind = PIX_QRCODE` ou `BILLING` (se houver) ainda é
+conferível por `reconcilePayment()`, mas nenhuma cobrança nova nasce assim.
 
 ---
 
 ## Webhook
 
-### Cadastro no painel da AbacatePay
+### Cadastro no painel da InfinitePay
+
+Diferente da AbacatePay, **não precisa cadastrar nada manualmente no
+painel**: a URL do webhook é enviada junto com o `handle` toda vez que um link
+de checkout é criado (campo `webhook_url` em `POST /links`), já com o segredo
+embutido na query string.
 
 1. Escolha um segredo forte, por exemplo: `openssl rand -base64 32`
-2. Coloque-o em `ABACATEPAY_WEBHOOK_SECRET` no servidor.
-3. No painel da AbacatePay, cadastre a URL do webhook **com o segredo na query
-   string**:
-
-   ```
-   https://SEU-DOMINIO.com/api/webhooks/abacatepay?webhookSecret=SEU_SEGREDO
-   ```
-
-4. Assine o evento `billing.paid`.
+2. Coloque-o em `INFINITEPAY_WEBHOOK_SECRET` no servidor.
+3. Pronto — toda cobrança nova já nasce apontando para
+   `https://SEU-DOMINIO.com/api/webhooks/infinitepay?webhookSecret=SEU_SEGREDO`.
 
 O endpoint recusa com **401** qualquer chamada cujo segredo não bata (comparação
 em tempo constante).
 
 ### O webhook não confirma pagamento sozinho
 
-Esta é a decisão de arquitetura mais importante do projeto:
+Esta é a decisão de arquitetura mais importante do projeto — e ela vale tanto
+para a InfinitePay quanto valia para a AbacatePay:
 
 > **O corpo do webhook é tratado como uma dica não confiável.** No máximo, ele
-> diz *qual cobrança olhar*. Quem decide se a inscrição está paga é o servidor,
-> perguntando o status **diretamente à API da AbacatePay** com a chave secreta.
+> diz *qual cobrança olhar* (`order_nsu`, `transaction_nsu`, `invoice_slug`).
+> Quem decide se a inscrição está paga é o servidor, perguntando `paid` e
+> `paid_amount` **diretamente à API da InfinitePay** via `payment_check`.
 
 Consequência prática: mesmo que alguém descubra a URL e o segredo e forje um
-evento `billing.paid` impecável, **nenhuma inscrição vira PAGA** — a conferência
-com o gateway devolveria `PENDING`. Esse cenário é testado em
-`npm run test:fluxo`.
+evento com `paid_amount` alto, **nenhuma inscrição vira PAGA** — a InfinitePay
+não tem registro dessa transação, e `payment_check` devolveria `paid: false`.
+Esse cenário é testado em `npm run test:fluxo`.
 
-Efeito colateral bem-vindo: se o webhook atrasar ou se perder, o pagamento ainda
-é confirmado, porque a mesma conferência roda quando o piloto abre a página da
-inscrição e quando o organizador clica em "Conferir pagamento no gateway".
+Efeito colateral bem-vindo: se o webhook atrasar ou se perder, o pagamento
+ainda é confirmado, porque a mesma conferência roda quando o piloto volta do
+checkout (a InfinitePay manda `slug`/`transaction_nsu` na URL de retorno) e
+quando o organizador clica em "Conferir pagamento no gateway".
 
-### Assinatura HMAC (opcional, desligada por padrão)
-
-Além do segredo na query string, o endpoint sabe validar uma assinatura
-HMAC-SHA256 do corpo bruto.
-
-**Deixei desligada de propósito.** Não consegui confirmar em primeira mão, na
-documentação oficial, qual header e qual segredo a sua conta usa — e ligar uma
-validação com o header errado faria o endpoint recusar eventos legítimos.
-
-Para ativar, **depois de confirmar os valores no painel da AbacatePay**:
-
-```
-ABACATEPAY_WEBHOOK_SIGNING_SECRET=<segredo de assinatura>
-ABACATEPAY_WEBHOOK_SIGNATURE_HEADER=x-webhook-signature   # ajuste se for outro
-```
-
-A verificação aceita a assinatura em base64 ou hex, sempre em tempo constante.
-Com a variável vazia, essa camada simplesmente não roda — o segredo na query
-string continua sendo obrigatório.
+**Limitação honesta:** sem `slug` e `transaction_nsu`, não há como perguntar
+nada à InfinitePay — e eles só existem depois que o piloto volta do checkout
+ou o webhook chega uma vez. Até lá, a inscrição fica PENDENTE mesmo que o
+pagamento já tenha sido aprovado no cartão/PIX do piloto.
 
 ### Proteções do endpoint
 
 | Risco | Proteção |
 |---|---|
-| Webhook duplicado | `id` do evento gravado em `WebhookEvent` com índice único; reentrega vira no-op |
-| Pagamento duplicado | `gatewayPaymentId` é único; a confirmação é condicionada a `status ≠ PAID` |
-| Evento forjado | O status vem da consulta à API, não do corpo do evento |
-| Valor adulterado | O valor da cobrança é conferido contra o total da inscrição antes de confirmar |
-| Cobrança de outro sistema | Cobrança desconhecida é registrada no log e ignorada |
-| Falha temporária | Responde 500 e libera o registro de idempotência, para a AbacatePay reenviar |
+| Webhook duplicado | `transaction_nsu` gravado em `WebhookEvent` com índice único; reentrega vira no-op |
+| Pagamento duplicado | `gatewayPaymentId` (`order_nsu`, gerado por nós) é único; a confirmação é condicionada a `status ≠ PAID` |
+| Evento forjado | O status vem da consulta a `payment_check`, não do corpo do evento |
+| Valor incompleto | `paid_amount` precisa cobrir o `amountCents` cobrado antes de confirmar |
+| Cobrança de outro sistema | `order_nsu` desconhecido é registrado no log e ignorado |
+| Falha temporária | Responde 500 e libera o registro de idempotência, para a InfinitePay reenviar |
 
 ---
 
@@ -283,14 +272,17 @@ string continua sendo obrigatório.
 ### Painel administrativo
 
 ```
+ADMIN_EMAIL=<identificador do organizador>
 ADMIN_PASSWORD=<senha do organizador>
 ADMIN_SESSION_SECRET=<openssl rand -base64 48>
 ```
 
-Acesso em `/admin`. Sem essas variáveis, a tela de login informa que o painel
-não está configurado — em vez de ficar aberto.
+Acesso em `/admin`. Sem essas três variáveis, a tela de login informa que o
+painel não está configurado — em vez de ficar aberto.
 
-O modelo é senha única, adequado a um evento pontual. Se no futuro houver vários
+`ADMIN_EMAIL` não precisa ter formato de e-mail de verdade — é só um segundo
+campo que soma à senha, comparado em tempo constante como a senha. O modelo é
+credencial única, adequado a um evento pontual. Se no futuro houver vários
 organizadores, troque `src/lib/admin-auth.ts` por uma biblioteca de
 autenticação; nada mais no projeto depende dele além de uma função.
 
@@ -304,26 +296,44 @@ npm run test:fluxo
 
 Exercita a regra crítica do sistema sem mover dinheiro e sem depender de rede:
 o script substitui o `fetch` global por um dublê que responde no formato
-documentado da AbacatePay. **Nenhum código de produção é alterado para o
+conferido da InfinitePay. **Nenhum código de produção é alterado para o
 teste** — o dublê entra por baixo, no `fetch`.
 
 O que é verificado:
 
 1. Total somado pelo servidor a partir dos preços do banco
-2. Inscrição nasce pendente e continua pendente depois de gerar a cobrança
-3. **Webhook forjado com o gateway dizendo `PENDING` não confirma a inscrição**
+2. Inscrição nasce pendente e continua pendente depois de gerar o link de checkout
+3. **Retorno forjado com o gateway dizendo "não pago" não confirma a inscrição**
 4. Pagamento aprovado pelo gateway confirma a inscrição
 5. Reentrega do webhook não confirma duas vezes nem duplica pagamento
 6. Alterar o preço da categoria não altera inscrições anteriores
 7. **Categoria sem preço é recusada** (`PRICE_NOT_SET`), sem gravar inscrição parcial
-8. Gateway devolvendo valor divergente faz a cobrança ser recusada
+8. Gateway confirmando `paid_amount` menor que o cobrado faz a confirmação ser recusada
 
-### Testando com dinheiro de mentira na AbacatePay
+### Testando com dinheiro de verdade
 
-Com uma chave de **desenvolvimento** configurada, as cobranças nascem com
-`devMode: true` e o site as identifica como teste na tela e no painel. O
-endpoint `POST /v1/pixQrCode/simulate-payment?id=<id>` da AbacatePay marca uma
-dessas cobranças como paga, permitindo ensaiar o fluxo real antes do evento.
+A InfinitePay não documenta um modo sandbox: **toda cobrança criada com uma
+InfiniteTag real é real**, mesmo em desenvolvimento. Não há como ensaiar o
+fluxo completo sem mover pelo menos R$ 1,00 de verdade — `npm run test:fluxo`
+é o único jeito de testar a lógica sem gastar dinheiro, porque ele nem chega a
+tocar a rede.
+
+Enquanto a conta não estiver pronta para receber pelo gateway, o painel tem
+uma **confirmação manual** (`/admin/inscricoes/[número]`) para registrar um
+pagamento recebido por fora — ver seção "Confirmação manual" abaixo.
+
+---
+
+## Confirmação manual de pagamento
+
+Em `/admin/inscricoes/[número]`, qualquer inscrição ainda não paga tem a opção
+**"Recebeu por fora do gateway?"** — para quando o piloto pagou diretamente na
+chave PIX pessoal do organizador, por exemplo.
+
+A nota descrevendo como o pagamento foi recebido é **obrigatória**: como não
+há gateway para conferir, ela é o único registro de auditoria dessa
+confirmação. Fica gravada em `Payment.notes` e aparece no detalhe da
+inscrição e na exportação CSV.
 
 ---
 
@@ -334,7 +344,8 @@ dessas cobranças como paga, permitindo ensaiar o fluxo real antes do evento.
 3. Defina `APP_BASE_URL` com a URL pública (sem barra final) — ela monta as
    URLs de retorno enviadas ao gateway.
 4. Rode `npm run db:deploy` e depois `npm run db:seed`.
-5. Cadastre a URL do webhook no painel da AbacatePay (seção acima).
+5. Defina `INFINITEPAY_HANDLE` e `INFINITEPAY_WEBHOOK_SECRET` (seção Webhook
+   acima) — o cadastro do webhook em si é automático, feito a cada link criado.
 6. Entre em `/admin/categorias` e **defina os preços** — as inscrições só abrem
    depois disso.
 
@@ -349,7 +360,8 @@ automaticamente no build.
 src/
   config/event.ts        Configuração do evento — o arquivo do organizador
   lib/
-    abacatepay.ts        Cliente da API v1, com a procedência de cada endpoint
+    infinitepay.ts       Cliente da InfinitePay, com a procedência de cada campo
+    abacatepay.ts        Legado — não é mais chamado por payments.ts (ver README)
     payments.ts          Criação de cobrança e reconciliação (único lugar que grava PAID)
     registrations.ts     Regras da inscrição e cálculo do total no servidor
     validation.ts        Schemas Zod compartilhados entre cliente e servidor
@@ -366,7 +378,8 @@ src/
     admin/(protected)/              Painel — a guarda cobre tudo aqui dentro
     admin/(protected)/categorias/   Definição de preços pelo organizador
     api/registrations/              Criação, cobrança e status
-    api/webhooks/abacatepay/        Webhook
+    api/webhooks/infinitepay/       Webhook
+    api/webhooks/abacatepay/        Legado
   components/            Peças de UI
 prisma/
   schema.prisma          Modelo de dados

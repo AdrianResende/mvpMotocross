@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { eventConfig } from "@/config/event";
 import { formatCents, formatShortDate, formatWeekday } from "@/lib/format";
 import { listCategoriesWithAvailability, registrationsClosed } from "@/lib/registrations";
@@ -24,6 +25,18 @@ export default async function HomePage() {
     <>
       {/* ---------------------------------------------------------------- HERO */}
       <section className="dirt-texture relative overflow-hidden border-b border-dirt-800">
+        <div aria-hidden className="absolute inset-0">
+          <Image
+            src="/backMain.png"
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover opacity-70"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-dirt-950/35 via-dirt-950/55 to-dirt-950" />
+        </div>
+
         <div aria-hidden className="pointer-events-none absolute inset-0 opacity-40">
           <div className="absolute -top-24 -right-16 h-[140%] w-40 -skew-x-12 bg-gradient-to-b from-race-500/20 to-transparent" />
           <div className="absolute -top-24 right-24 h-[140%] w-16 -skew-x-12 bg-gradient-to-b from-race-600/15 to-transparent" />
@@ -94,6 +107,18 @@ export default async function HomePage() {
               </p>
             )
           )}
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------- VÍDEO DE DIVULGAÇÃO */}
+      <section className="border-b border-dirt-800 bg-dirt-950">
+        <div className="mx-auto max-w-4xl px-4 py-14 sm:py-20">
+          <SectionTitle eyebrow="Divulgação oficial">Vídeo de divulgação</SectionTitle>
+          <div className="mt-6 overflow-hidden border border-dirt-800">
+            <video controls playsInline className="w-full">
+              <source src="/divulgacao.mp4" type="video/mp4" />
+            </video>
+          </div>
         </div>
       </section>
 

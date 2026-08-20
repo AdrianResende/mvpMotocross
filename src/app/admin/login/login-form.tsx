@@ -14,6 +14,17 @@ export function LoginForm() {
     <form action={formAction} className="space-y-5">
       {state.error && <Alert>{state.error}</Alert>}
 
+      {/* type="text", não "email": o valor cadastrado em ADMIN_EMAIL não
+          precisa ter formato de e-mail — é só um identificador. */}
+      <TextField
+        label="E-mail do organizador"
+        name="email"
+        type="text"
+        required
+        autoComplete="username"
+        enterKeyHint="next"
+      />
+
       <TextField
         label="Senha do organizador"
         name="password"

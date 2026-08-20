@@ -42,11 +42,17 @@ function sign(payload: string, secret: string): string {
   return createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
-/** Confere a senha informada no formulário de login. */
-export function isValidAdminPassword(password: string): boolean {
-  const expected = serverEnv.adminPassword;
-  if (!expected) return false;
-  return safeEquals(password, expected);
+/** Confere e-mail e senha informados no formulário de login. */
+export function isValidAdminCredentials(email: string, password: string): boolean {
+  const expectedEmail = serverEnv.adminEmail;
+  const expectedPassword = serverEnv.adminPassword;
+  if (!expectedEmail || !expectedPassword) return false;
+
+  // As duas comparações rodam sempre, mesmo se a primeira já falhar, para não
+  // vazar por timing qual dos dois campos está errado.
+  const emailOk = safeEquals(email.trim().toLowerCase(), expectedEmail.trim().toLowerCase());
+  const passwordOk = safeEquals(password, expectedPassword);
+  return emailOk && passwordOk;
 }
 
 /** Cria o cookie de sessão. Chame apenas depois de validar a senha. */

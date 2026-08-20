@@ -1,14 +1,15 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { endAdminSession, isValidAdminPassword, startAdminSession } from "@/lib/admin-auth";
+import { endAdminSession, isValidAdminCredentials, startAdminSession } from "@/lib/admin-auth";
 import { isAdminConfigured } from "@/lib/env";
 
 /**
  * Server Actions do login administrativo.
  *
- * A senha é comparada no servidor e nunca volta para o cliente. A resposta em
- * caso de erro é sempre a mesma mensagem genérica.
+ * E-mail e senha são comparados no servidor e nunca voltam para o cliente. A
+ * resposta em caso de erro é sempre a mesma mensagem genérica, para não
+ * revelar qual dos dois campos está errado.
  */
 
 export type LoginState = { error?: string };
@@ -20,13 +21,18 @@ export async function loginAction(
   if (!isAdminConfigured()) {
     return {
       error:
-        "Área administrativa não configurada. Defina ADMIN_PASSWORD e ADMIN_SESSION_SECRET no servidor.",
+        "Área administrativa não configurada. Defina ADMIN_EMAIL, ADMIN_PASSWORD e ADMIN_SESSION_SECRET no servidor.",
     };
   }
 
+  const email = formData.get("email");
   const password = formData.get("password");
-  if (typeof password !== "string" || !isValidAdminPassword(password)) {
-    return { error: "Senha incorreta." };
+  if (
+    typeof email !== "string" ||
+    typeof password !== "string" ||
+    !isValidAdminCredentials(email, password)
+  ) {
+    return { error: "E-mail ou senha incorretos." };
   }
 
   await startAdminSession();

@@ -12,6 +12,7 @@ import {
 } from "@/lib/format";
 import { Card, DataRow, StatusBadge } from "@/components/ui";
 import { RecheckPaymentButton } from "./recheck-button";
+import { ManualPaymentForm } from "./manual-payment-form";
 
 export const metadata: Metadata = {
   title: "Detalhe da inscrição",
@@ -169,12 +170,20 @@ export default async function AdminRegistrationDetailPage({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="display-label text-xs text-chalk-dim">
-                      {payment.kind === "PIX_QRCODE" ? "QR Code PIX" : "Checkout hospedado"}
+                      {payment.kind === "INFINITEPAY"
+                        ? "Checkout InfinitePay"
+                        : payment.kind === "PIX_QRCODE"
+                          ? "QR Code PIX (legado)"
+                          : payment.kind === "BILLING"
+                            ? "Checkout hospedado (legado)"
+                            : "Confirmado manualmente"}
                       {payment.devMode && " · modo de teste"}
                     </p>
-                    <p className="mt-1 font-mono text-xs break-all text-chalk-dim">
-                      {payment.gatewayPaymentId}
-                    </p>
+                    {payment.kind !== "MANUAL" && (
+                      <p className="mt-1 font-mono text-xs break-all text-chalk-dim">
+                        {payment.gatewayPaymentId}
+                      </p>
+                    )}
                   </div>
                   <StatusBadge status={payment.status} />
                 </div>
@@ -196,6 +205,11 @@ export default async function AdminRegistrationDetailPage({
                     <DataRow label="Expira em" value={formatDateTime(payment.expiresAt)} />
                   )}
                 </dl>
+                {payment.notes && (
+                  <p className="mt-3 border-t border-dirt-800 pt-3 text-sm text-chalk-dim">
+                    {payment.notes}
+                  </p>
+                )}
               </Card>
             ))}
           </div>
@@ -207,9 +221,28 @@ export default async function AdminRegistrationDetailPage({
           <div className="mt-4">
             <RecheckPaymentButton paymentId={pendingPayment.id} />
             <p className="mt-2 text-xs text-dirt-600">
-              Consulta o status direto na AbacatePay e atualiza a inscrição se o
-              pagamento já tiver sido aprovado.
+              Consulta o status direto no gateway e atualiza a inscrição se o pagamento
+              já tiver sido aprovado. Só funciona depois que o piloto voltar do checkout
+              ou o webhook chegar — antes disso não há o que consultar.
             </p>
+          </div>
+        )}
+
+        {/* Confirmação manual: para quando o piloto pagou por fora do gateway
+            (ex.: PIX pessoal do organizador enquanto a conta não está
+            aprovada para produção na AbacatePay). */}
+        {registration.status !== "PAID" && registration.status !== "CANCELLED" && (
+          <div className="mt-4 border-t border-dirt-800 pt-4">
+            <h3 className="display-label text-xs text-race-500">
+              Recebeu por fora do gateway?
+            </h3>
+            <p className="mt-1 text-xs text-dirt-600">
+              Confirme na mão quando o pagamento não passou pela AbacatePay — por exemplo,
+              PIX recebido direto na chave do organizador.
+            </p>
+            <div className="mt-3">
+              <ManualPaymentForm registrationNumber={registration.number} />
+            </div>
           </div>
         )}
       </section>

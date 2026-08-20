@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { findActivePayment, getRegistrationByPublicId } from "@/lib/registrations";
-import { isPaymentGatewayConfigured, serverEnv } from "@/lib/env";
+import { reconcilePayment } from "@/lib/payments";
+import { isPaymentGatewayConfigured } from "@/lib/env";
 import { formatCents, formatCpf } from "@/lib/format";
 import { PaymentPanel } from "@/components/payment-panel";
 import { Card } from "@/components/ui";
@@ -16,13 +17,40 @@ export const dynamic = "force-dynamic";
 
 export default async function PaymentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ publicId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { publicId } = await params;
-  const registration = await getRegistrationByPublicId(publicId);
+  const query = await searchParams;
 
+  let registration = await getRegistrationByPublicId(publicId);
   if (!registration) notFound();
+
+  // O piloto acabou de voltar do checkout da InfinitePay: ela manda esses
+  // parâmetros na URL de retorno. É a primeira vez que `slug` e
+  // `transactionNsu` existem — sem eles não dá pra perguntar nada ao gateway.
+  const returnSlug = pickString(query.slug);
+  const returnTransactionNsu = pickString(query.transaction_nsu);
+  const returnOrderNsu = pickString(query.order_nsu);
+
+  if (registration.status !== "PAID" && returnSlug && returnTransactionNsu && returnOrderNsu) {
+    const activePayment = findActivePayment(registration);
+    if (
+      activePayment &&
+      activePayment.kind === "INFINITEPAY" &&
+      activePayment.gatewayPaymentId === returnOrderNsu
+    ) {
+      await reconcilePayment(activePayment.id, {
+        slug: returnSlug,
+        transactionNsu: returnTransactionNsu,
+      });
+      // Recarrega: `reconcilePayment` pode ter promovido a inscrição a PAGA.
+      registration = await getRegistrationByPublicId(publicId);
+      if (!registration) notFound();
+    }
+  }
 
   // Já pago: não faz sentido continuar aqui.
   if (registration.status === "PAID") {
@@ -30,20 +58,7 @@ export default async function PaymentPage({
   }
 
   const activePayment = findActivePayment(registration);
-
-  const initialPix =
-    activePayment?.kind === "PIX_QRCODE" && activePayment.brCode && activePayment.brCodeBase64
-      ? {
-          paymentId: activePayment.id,
-          brCode: activePayment.brCode,
-          brCodeBase64: activePayment.brCodeBase64,
-          expiresAt: activePayment.expiresAt?.toISOString() ?? null,
-          devMode: activePayment.devMode,
-        }
-      : null;
-
-  const initialCheckoutUrl =
-    activePayment?.kind === "BILLING" ? activePayment.checkoutUrl : null;
+  const checkoutUrl = activePayment?.kind === "INFINITEPAY" ? activePayment.checkoutUrl : null;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:py-14">
@@ -85,11 +100,7 @@ export default async function PaymentPage({
           publicId={publicId}
           registrationNumber={registration.number}
           totalCents={registration.totalCents}
-          initialPix={initialPix}
-          initialCheckoutUrl={initialCheckoutUrl}
-          // Cartão é recurso em BETA na AbacatePay e depende de liberação na
-          // conta do organizador. Veja o README antes de habilitar.
-          cardEnabled={serverEnv.abacatePayCardEnabled}
+          initialCheckoutUrl={checkoutUrl}
           gatewayConfigured={isPaymentGatewayConfigured()}
         />
       </div>
@@ -100,4 +111,10 @@ export default async function PaymentPage({
       </p>
     </div>
   );
+}
+
+function pickString(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const trimmed = raw?.trim();
+  return trimmed ? trimmed : undefined;
 }

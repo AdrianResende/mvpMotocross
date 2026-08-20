@@ -1,77 +1,72 @@
 /**
- * TESTE DE FLUXO PONTA A PONTA (sem tocar na AbacatePay de verdade)
- * =================================================================
+ * TESTE DE FLUXO PONTA A PONTA (sem tocar na InfinitePay de verdade)
+ * ====================================================================
  *
  * Rodar:  npm run test:fluxo
  *
  * Este script exercita a regra mais importante do sistema:
  *
- *     UMA INSCRIÇÃO SÓ VIRA PAGA QUANDO A PRÓPRIA ABACATEPAY,
+ *     UMA INSCRIÇÃO SÓ VIRA PAGA QUANDO A PRÓPRIA INFINITEPAY,
  *     CONSULTADA PELO SERVIDOR, DIZ QUE A COBRANÇA ESTÁ PAGA.
  *
  * Para conseguir testar isso sem mover dinheiro nem depender de rede, o script
  * substitui o `fetch` global por um dublê que responde como a API da
- * AbacatePay responderia, usando exatamente o formato documentado nos pacotes
- * oficiais `@abacatepay/types`. Nenhum código de produção é alterado ou
- * instrumentado para o teste — o dublê entra por baixo, no `fetch`.
+ * InfinitePay responderia, no formato conferido em `src/lib/infinitepay.ts`.
+ * Nenhum código de produção é alterado ou instrumentado para o teste — o
+ * dublê entra por baixo, no `fetch`.
  *
  * Os dados criados aqui são removidos no final.
  */
 import "dotenv/config";
 
-// Chave de mentira: existe só para o cliente HTTP passar da checagem de
+// Handle de mentira: existe só para o cliente HTTP passar da checagem de
 // configuração. Nenhuma requisição real sai daqui — o `fetch` é substituído
 // logo abaixo.
-process.env.ABACATEPAY_API_KEY = "chave-de-teste-nunca-usada-de-verdade";
+process.env.INFINITEPAY_HANDLE = "handle-de-teste-nunca-usado-de-verdade";
 
 // ---------------------------------------------------------------- dublê
 
-/** Estado que o "gateway" vai reportar na próxima consulta. */
+/** Estado que o "gateway" vai reportar na próxima consulta de payment_check. */
 const gateway = {
-  status: "PENDING" as "PENDING" | "PAID",
-  /** Valor que o gateway devolve ao criar a cobrança, em centavos. */
-  amountOverride: null as number | null,
+  paid: false,
+  /** Quando definido, sobrepõe o `paid_amount` devolvido — simula pagamento parcial. */
+  paidAmountOverride: null as number | null,
 };
+
+/** `order_nsu` -> valor cobrado na criação do link, pra ecoar em payment_check. */
+const chargedAmounts = new Map<string, number>();
 
 const realFetch = globalThis.fetch;
 
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === "string" ? input : input.toString();
 
-  // Qualquer coisa que não seja a AbacatePay segue o caminho normal.
-  if (!url.startsWith("https://api.abacatepay.com/")) {
+  // Qualquer coisa que não seja a InfinitePay segue o caminho normal.
+  if (!url.startsWith("https://api.infinitepay.io/invoices/public/checkout/")) {
     return realFetch(input, init);
   }
 
   const json = (data: unknown) =>
-    new Response(JSON.stringify({ data, error: null }), {
+    new Response(JSON.stringify(data), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
 
-  if (url.includes("/pixQrCode/create")) {
-    const body = JSON.parse(String(init?.body ?? "{}")) as { amount: number };
-    return json({
-      id: "pix_char_TESTE",
-      amount: gateway.amountOverride ?? body.amount,
-      status: "PENDING",
-      devMode: true,
-      method: "PIX",
-      brCode: "00020101021226950014br.gov.bcb.pix-EXEMPLO-DE-TESTE",
-      brCodeBase64: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
-      platformFee: 80,
-      description: "teste",
-      metadata: {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-    });
+  if (url.endsWith("/links")) {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { order_nsu: string; amount: number };
+    chargedAmounts.set(body.order_nsu, body.amount);
+    return json({ url: `https://checkout.infinitepay.com.br/handle-de-teste?lenc=TESTE-${body.order_nsu}` });
   }
 
-  if (url.includes("/pixQrCode/check")) {
+  if (url.endsWith("/payment_check")) {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { order_nsu: string };
+    const amount = chargedAmounts.get(body.order_nsu) ?? 0;
     return json({
-      status: gateway.status,
-      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      paid: gateway.paid,
+      amount,
+      paid_amount: gateway.paid ? (gateway.paidAmountOverride ?? amount) : 0,
+      installments: 1,
+      capture_method: "pix",
     });
   }
 
@@ -189,9 +184,9 @@ async function run() {
   let registration = (await getRegistrationByPublicId(created.publicId))!;
   check("inscrição nasce PENDENTE", registration.status === "PENDING");
 
-  // -------------------------------------------------------------- cobrança
-  console.log("\n2. Geração da cobrança PIX");
-  const payment = await createPaymentForRegistration(registration, "PIX");
+  // ---------------------------------------------------------- link de checkout
+  console.log("\n2. Geração do link de checkout");
+  const payment = await createPaymentForRegistration(registration);
   check("cobrança criada", payment.ok);
   if (!payment.ok) throw new Error(payment.error);
 
@@ -201,28 +196,33 @@ async function run() {
     paymentRow.amountCents === expectedTotal,
   );
   check("cobrança nasce PENDENTE", paymentRow.status === "PENDING");
-  check("QR Code e copia-e-cola gravados", Boolean(paymentRow.brCode && paymentRow.brCodeBase64));
+  check("link de checkout gravado", Boolean(paymentRow.checkoutUrl));
 
   registration = (await getRegistrationByPublicId(created.publicId))!;
   check("inscrição continua PENDENTE após gerar cobrança", registration.status === "PENDING");
 
-  // ------------------------------------------------- webhook forjado
-  console.log("\n3. Webhook forjado (gateway ainda diz PENDENTE)");
-  gateway.status = "PENDING";
-  const forged = await reconcilePayment(payment.paymentId);
+  // ------------------------------------------------- retorno forjado do checkout
+  console.log("\n3. Piloto volta do checkout, mas o gateway ainda diz NÃO PAGO");
+  gateway.paid = false;
+  const forged = await reconcilePayment(payment.paymentId, {
+    slug: "slug-de-teste",
+    transactionNsu: "txn-de-teste",
+  });
 
   check("conferência devolve PENDENTE", forged.status === "PENDING");
   check("nada foi confirmado", forged.justPaid === false);
 
   registration = (await getRegistrationByPublicId(created.publicId))!;
   check(
-    "INSCRIÇÃO NÃO VIROU PAGA com evento forjado",
+    "INSCRIÇÃO NÃO VIROU PAGA com retorno forjado",
     registration.status === "PENDING",
   );
 
   // ---------------------------------------------- pagamento verdadeiro
   console.log("\n4. Pagamento confirmado pelo gateway");
-  gateway.status = "PAID";
+  gateway.paid = true;
+  // `slug`/`transactionNsu` já foram gravados no passo 3 — o webhook chegando
+  // sozinho, sem o piloto ter voltado, cai neste mesmo caminho.
   const confirmed = await reconcilePayment(payment.paymentId);
 
   check("conferência devolve PAGO", confirmed.status === "PAID");
@@ -297,8 +297,8 @@ async function run() {
   const leaked = await prisma.pilot.findUnique({ where: { cpf: TEST_CPF } });
   check("nenhuma inscrição parcial foi gravada", leaked === null);
 
-  // ------------------------------------------- gateway com valor diferente
-  console.log("\n8. Gateway devolve valor diferente do solicitado");
+  // ------------------------------------------- gateway paga menos que o devido
+  console.log("\n8. Gateway confirma pagamento com valor menor que o cobrado");
   await cleanup();
 
   const second = await createRegistration({
@@ -316,15 +316,26 @@ async function run() {
   });
 
   const secondRegistration = (await getRegistrationByPublicId(second.publicId))!;
-  gateway.amountOverride = 100; // o gateway "responde" R$ 1,00 em vez do total
-  const rejected = await createPaymentForRegistration(secondRegistration, "PIX");
-  gateway.amountOverride = null;
+  const secondPayment = await createPaymentForRegistration(secondRegistration);
+  check("segunda cobrança criada", secondPayment.ok);
+  if (!secondPayment.ok) throw new Error(secondPayment.error);
 
-  check("cobrança recusada", rejected.ok === false);
-  const orphanPayments = await prisma.payment.count({
-    where: { registrationNumber: secondRegistration.number },
+  gateway.paid = true;
+  gateway.paidAmountOverride = 100; // o gateway "confirma" só R$ 1,00 pago
+  const shortPaid = await reconcilePayment(secondPayment.paymentId, {
+    slug: "slug-de-teste-2",
+    transactionNsu: "txn-de-teste-2",
   });
-  check("nenhuma cobrança gravada com valor divergente", orphanPayments === 0);
+  gateway.paidAmountOverride = null;
+
+  check("conferência recusa o pagamento", shortPaid.justPaid === false);
+  check("status não vira PAGO", shortPaid.status !== "PAID");
+
+  const secondRegistrationAfter = (await getRegistrationByPublicId(second.publicId))!;
+  check(
+    "inscrição não virou PAGA com valor incompleto",
+    secondRegistrationAfter.status === "PENDING",
+  );
 
   await cleanup();
 }

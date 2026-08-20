@@ -97,6 +97,22 @@ export function formatPhone(phone: string): string {
   return phone;
 }
 
+/** Rótulo legível para o organizador, coberto os quatro `PaymentKind`. */
+export function formatPaymentKind(kind: string): string {
+  switch (kind) {
+    case "INFINITEPAY":
+      return "InfinitePay";
+    case "PIX_QRCODE":
+      return "PIX (legado)";
+    case "BILLING":
+      return "Checkout (legado)";
+    case "MANUAL":
+      return "Manual";
+    default:
+      return kind;
+  }
+}
+
 export function onlyDigits(value: string): string {
   return value.replace(/\D/g, "");
 }
